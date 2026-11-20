@@ -1,0 +1,29 @@
+{
+  "name": "ssw-funnel",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @ssw/web",
+    "build": "npm run build -w @ssw/web && npm run build -w @ssw/worker",
+    "start": "npm run start -w @ssw/web",
+    "worker": "npm run dev -w @ssw/worker",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit && npm run typecheck -w @ssw/web",
+    "lint": "npm run lint -w @ssw/web",
+    "db:generate": "npm run generate -w @ssw/db",
+    "db:migrate": "npm run migrate -w @ssw/db",
+    "test:e2e": "npm exec -w @ssw/web -- playwright test"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "tsx": "^4.23.15",
+    "typescript": "^5",
+    "vitest": "^5.1.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

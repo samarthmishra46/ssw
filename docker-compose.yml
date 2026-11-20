@@ -1,0 +1,16 @@
+# Local PostgreSQL, if you prefer it to the built-in PGlite:
+#   docker compose up -d
+#   DATABASE_URL=postgres://ssw:ssw@localhost:5432/ssw npm run db:migrate
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ssw
+      POSTGRES_PASSWORD: ssw
+      POSTGRES_DB: ssw
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:

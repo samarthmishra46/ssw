@@ -1,0 +1,15 @@
+{
+  "name": "@ssw/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schemas": "./src/schemas.ts",
+    "./time": "./src/time.ts",
+    "./phone": "./src/phone.ts"
+  },
+  "dependencies": {
+    "zod": "^4.6.7"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@ssw/integrations",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@ssw/core": "*",
+    "@ssw/db": "*"
+  }
+}
