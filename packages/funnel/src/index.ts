@@ -2,6 +2,7 @@ export { FunnelError, bookingToken, readToken, refFromToken, siteUrl, allowMockP
 export {
   submitDetails,
   getSlots,
+  getDoctors,
   holdSlot,
   releaseSlot,
   createPaymentOrder,

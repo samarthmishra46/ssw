@@ -11,11 +11,13 @@ import { logEvent } from "./events";
 
 export type TemplateName =
   | "booking_confirmed"
+  | "booking_confirmed_online"
   | "resume_payment"
   | "consult_explainer"
   | "trust_faq"
   | "final_reminder"
   | "reminder_24h"
+  | "reminder_online"
   | "visit_day"
   | "no_show_kind";
 

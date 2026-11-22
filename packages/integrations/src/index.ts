@@ -1,4 +1,6 @@
+import { centres } from "@ssw/content";
 import { HttpCalendarClient, MockCalendarClient, type CalendarClient } from "./calendar";
+import { IamCalendarClient, IamKeyring } from "./iam";
 import { MetaCapiClient, NoopMetaClient, type MetaClient } from "./meta";
 import { MockPaymentsClient, RazorpayClient, type PaymentsClient } from "./razorpay";
 import { HttpSlixtaClient, MockSlixtaClient, type SlixtaClient } from "./slixta";
@@ -8,6 +10,7 @@ export * from "./slixta";
 export * from "./calendar";
 export * from "./razorpay";
 export * from "./meta";
+export * from "./iam";
 
 export type Integrations = {
   slixta: SlixtaClient;
@@ -31,11 +34,15 @@ export function integrations(): Integrations {
   const slixta =
     slixtaMode === "http" ? new HttpSlixtaClient(required("SLIXTA_API_URL"), required("SLIXTA_API_KEY")) : new MockSlixtaClient();
 
-  const calendarMode = env.CALENDAR_MODE ?? (env.CALENDAR_API_URL ? "http" : "mock");
+  const calendarMode =
+    env.CALENDAR_MODE ??
+    (env.IAM_API_BASE_URL && new IamKeyring(env).hasAnyKey() ? "iam" : env.CALENDAR_API_URL ? "http" : "mock");
   const calendar =
-    calendarMode === "http"
-      ? new HttpCalendarClient(required("CALENDAR_API_URL"), required("CALENDAR_API_KEY"))
-      : new MockCalendarClient();
+    calendarMode === "iam"
+      ? iamCalendar()
+      : calendarMode === "http"
+        ? new HttpCalendarClient(required("CALENDAR_API_URL"), required("CALENDAR_API_KEY"))
+        : new MockCalendarClient();
 
   const payments =
     env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET
@@ -48,6 +55,26 @@ export function integrations(): Integrations {
 
   cached = { slixta, calendar, payments, meta, whatsappMode };
   return cached;
+}
+
+/** I AM Partner Booking API (docs/06). One key per centre: see ./iam/keys.ts. */
+function iamCalendar(): IamCalendarClient {
+  const env = process.env;
+  const seconds = (name: string, fallback: number) => (env[name] ? Number(env[name]) : fallback);
+  return new IamCalendarClient({
+    baseUrl: required("IAM_API_BASE_URL"),
+    timeoutMs: seconds("IAM_HTTP_TIMEOUT_MS", 15_000),
+    checkoutBufferSeconds: seconds("IAM_HOLD_CHECKOUT_BUFFER_SECONDS", 60),
+    cache: {
+      experts: seconds("IAM_CACHE_EXPERTS_SECONDS", 300),
+      dates: seconds("IAM_CACHE_DATES_SECONDS", 60),
+      slots: seconds("IAM_CACHE_SLOTS_SECONDS", 20),
+    },
+    centre: (slug) => {
+      const c = centres[slug];
+      return c?.iam ? { slug: c.slug, code: c.code, city: c.slug, iam: c.iam } : undefined;
+    },
+  });
 }
 
 /** Tests can swap in fakes. */

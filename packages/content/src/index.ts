@@ -1,6 +1,6 @@
 import type { Centre, Programme } from "./types";
 
-export type { Centre, Programme, Practitioner, Proof } from "./types";
+export type { Centre, IamCentreSettings, Programme, Practitioner, Proof } from "./types";
 
 // ---------------------------------------------------------------------------
 // Centres
@@ -25,6 +25,13 @@ export const centres: Record<string, Centre> = {
     slixtaTelecallerId: null,
     calendarService: "nadi-pariksha",
     bookingWindowDays: 7,
+    // Doctors, fees and slots come from I AM. Code confirmed on the staging key (GET /centres/).
+    iam: {
+      centreCode: "ssw_ahmedabad",
+      modes: ["offline", "online"],
+      expertType: "doctor",
+      preferredDurationMinutes: 30,
+    },
   },
 };
 
@@ -41,7 +48,7 @@ export function getCentreByCode(code: string): Centre | undefined {
 // ---------------------------------------------------------------------------
 
 export const REFUND_POLICY_SHORT =
-  "The ₹500 consultation fee is non-refundable once your booking is confirmed. To change your time, call reception. If a technical problem means you were charged twice, or you paid and we can't offer you a slot, the amount is returned to you.";
+  "The consultation fee is non-refundable once your booking is confirmed. To change your time, call reception. If a technical problem means you were charged twice, or you paid and we can't offer you a slot, the amount is returned to you.";
 
 const DUR = "[[duration]]";
 
@@ -86,12 +93,12 @@ export const programmes: Record<string, Programme> = {
     label: "Knees · Back · Joints",
     metaTitle: "Nadi Pariksha for knees, back and joints · Sri Sri Wellbeing Ahmedabad",
     metaDescription:
-      "Sit with our Ayurveda doctors about the discomfort in your knees, back or joints. Nadi Pariksha consultation, ₹500, Ambawadi, Ahmedabad.",
+      "Sit with our Ayurveda doctors about the discomfort in your knees, back or joints. Book a Nadi Pariksha consultation, Ambawadi, Ahmedabad.",
     head: "When the stairs make you stop and think, it's worth a conversation.",
     sub: "Sit with our Ayurveda doctors, who listen first. Talk through the discomfort in your knees, back or joints, and leave with a plan explained in plain words.",
     small: `${HOURS} · Consult in Gujarati, Hindi or English`,
     bullets: [
-      "Nadi Pariksha consultation: ₹500, paid when you book",
+      "Choose your doctor: their consultation fee is shown before you pay",
       `About ${DUR}, with our Ayurveda doctors`,
       "No pressure to start any treatment",
       "Sri Sri Wellbeing Ahmedabad, Shivranjani Cross Road, Ambawadi",
@@ -149,12 +156,12 @@ export const programmes: Record<string, Programme> = {
     label: "Sleep · Stress · Relaxation",
     metaTitle: "Nadi Pariksha for sleep and stress · Sri Sri Wellbeing Ahmedabad",
     metaDescription:
-      "Body tired, mind still running? An unhurried consultation with our Ayurveda doctors and a routine that fits your evenings. ₹500, Ambawadi, Ahmedabad.",
+      "Body tired, mind still running? An unhurried consultation with our Ayurveda doctors and a routine that fits your evenings. Book online, Ambawadi, Ahmedabad.",
     head: "Body tired. Mind still running. Start with an unhurried conversation.",
     sub: "A consultation with our Ayurveda doctors, a routine that fits your evenings, and relaxation therapy if the doctor feels it suits you.",
     small: `${HOURS} · Consult in Gujarati, Hindi or English`,
     bullets: [
-      "Nadi Pariksha consultation: ₹500, paid when you book",
+      "Choose your doctor: their consultation fee is shown before you pay",
       `About ${DUR}, with our Ayurveda doctors`,
       "Relaxation therapy on the doctor's advice",
       "Sri Sri Wellbeing Ahmedabad, Shivranjani Cross Road, Ambawadi",
@@ -211,12 +218,12 @@ export const programmes: Record<string, Programme> = {
     label: "Women's wellness",
     metaTitle: "Women's wellness consultation · Sri Sri Wellbeing Ahmedabad",
     metaDescription:
-      "One unhurried conversation with our Ayurveda doctors about your food, sleep, stress and routine. Private Nadi Pariksha consultation, ₹500, Ahmedabad.",
+      "One unhurried conversation with our Ayurveda doctors about your food, sleep, stress and routine. Private Nadi Pariksha consultation, Ahmedabad.",
     head: "Ten tabs open, ten different answers. One unhurried conversation with our Ayurveda doctors.",
     sub: "A private consultation. Your food, sleep, stress and routine, looked at together.",
     small: `Women therapists for women guests [[(to be confirmed)]] · ${HOURS} · Gujarati, Hindi or English`,
     bullets: [
-      "Nadi Pariksha consultation: ₹500, paid when you book",
+      "Choose your doctor: their consultation fee is shown before you pay",
       `About ${DUR}, with our Ayurveda doctors`,
       "Private, unhurried, no pressure",
       "Sri Sri Wellbeing Ahmedabad, Shivranjani Cross Road, Ambawadi",

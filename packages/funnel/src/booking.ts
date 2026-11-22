@@ -17,10 +17,10 @@ import {
   type DetailsInput,
 } from "@ssw/core";
 import { centreProgrammes, getProgramme } from "@ssw/content";
-import { and, appointments, consents, contacts, desc, eq, getDb, ne, payments } from "@ssw/db";
-import { bookingWindow, integrations, SlotLostError, SlotUnavailableError } from "@ssw/integrations";
+import { and, appointments, consents, contacts, desc, eq, getDb, iamBookings, inArray, ne, payments } from "@ssw/db";
+import { bookingWindow, HoldRefusedError, integrations, normaliseLanguage, SlotLostError, SlotUnavailableError } from "@ssw/integrations";
 import { allowMockPayments, bookingToken, FunnelError, readToken, refFromToken, requireCentre } from "./config";
-import { logEvent } from "./events";
+import { alert, logEvent } from "./events";
 import { enqueue } from "./jobs/queue";
 import { ingestEntryEvent, setStage } from "./leads";
 import { cancelReminders, queueTemplate, scheduleReminders } from "./notifications";
@@ -36,6 +36,34 @@ export type RequestMeta = { ip?: string | null; userAgent?: string | null; page?
 export type Screen = "s1" | "s2" | "s3" | "wait" | "done" | "failed" | "expired" | "expiredpaid";
 
 const isPaid = (s: string) => PAID_STATUSES.has(s as AppointmentStatus);
+
+/** What the guest is charged: the price locked at hold if the calendar set one, else the centre fee. */
+export const chargePaise = (a: Pick<Appointment, "chargePaise" | "feeInr">) => a.chargePaise ?? a.feeInr * 100;
+
+/**
+ * I AM guide 6.6 / 8.3: never release a hold whose payment might still succeed (a pending UPI
+ * can complete after the guest leaves). Once a Razorpay order exists for the booking we let the
+ * hold expire on its own instead; a late payment can then still be confirmed.
+ */
+async function hasOpenOrder(appointmentId: string): Promise<boolean> {
+  const db = await getDb();
+  const open = await db
+    .select({ id: payments.id })
+    .from(payments)
+    .where(and(eq(payments.appointmentId, appointmentId), inArray(payments.status, ["created", "failed"])))
+    .limit(1);
+  return open.length > 0;
+}
+
+/** Short note for the doctor: programme, who booked, language. Sent to calendars that take one. */
+function concernFor(a: Appointment): string {
+  const programme = getProgramme(a.programme);
+  const parts = [`Nadi Pariksha: ${programme?.label ?? a.programme}`];
+  if (a.who !== "Myself") parts.push(`Booked by ${a.bookerName} for ${a.who === "My parent" ? "their parent" : "someone else"}`);
+  if (!a.patientIsAdult) parts.push("Guest is under 18");
+  parts.push(`Prefers ${a.language}`);
+  return parts.join(". ");
+}
 
 async function loadAppointment(ref: string): Promise<Appointment> {
   const db = await getDb();
@@ -190,18 +218,64 @@ export async function submitDetails(raw: DetailsInput, meta: RequestMeta = {}) {
 // Step 2: live slots and the 15-minute hold
 // ---------------------------------------------------------------------------
 
-export async function getSlots(token: string) {
+/**
+ * Doctors to choose from, when the calendar names them (I AM): name, speciality, languages,
+ * experience, fee and modes, all from the calendar. `doctors: null` = no choice (one slot grid).
+ */
+export async function getDoctors(token: string) {
+  const a = await loadAppointment(refFromToken(token));
+  const { calendar } = integrations();
+  if (!calendar.listResources) return { doctors: null };
+  const doctors = await calendar.listResources({ centre: a.centre, programme: a.programme, language: a.language });
+  return {
+    doctors: doctors.map((d) => ({
+      id: d.id,
+      name: d.name,
+      photoUrl: d.photoUrl,
+      specialities: d.specialities,
+      languages: displayLanguages(d.languages),
+      yearsExperience: d.yearsExperience,
+      bio: d.bio,
+      modes: d.modes,
+      feePaise: d.feePaise,
+      speaksLanguage: d.speaksLanguage,
+      nextAvailable: d.nextAvailable,
+    })),
+  };
+}
+
+/** I AM languages are free text ("eng", "hindi"): show "English", "Hindi", without repeats. */
+function displayLanguages(languages: string[]): string[] {
+  const out = languages
+    .map((l) => normaliseLanguage(l))
+    .filter((l): l is string => !!l)
+    .map((l) => l.charAt(0).toUpperCase() + l.slice(1));
+  return [...new Set(out)];
+}
+
+export async function getSlots(token: string, opts: { doctorId?: string; mode?: "offline" | "online" } = {}) {
   const a = await loadAppointment(refFromToken(token));
   const centre = requireCentre(a.centre);
-  const { from, to } = bookingWindow(centre.bookingWindowDays);
-  const availability = await integrations().calendar.getAvailability({
-    centre: centre.slug,
-    service: centre.calendarService,
-    from,
-    to,
-    language: a.language,
-  });
+  const { calendar } = integrations();
+  const { from, to } = bookingWindow(centre.bookingWindowDays, new Date(), { includeToday: calendar.windowStartsToday });
+  let availability;
+  try {
+    availability = await calendar.getAvailability({
+      centre: centre.slug,
+      programme: a.programme,
+      service: centre.calendarService,
+      from,
+      to,
+      language: a.language,
+      resourceId: opts.doctorId,
+      mode: opts.mode,
+    });
+  } catch (err) {
+    if (err instanceof HoldRefusedError) throw new FunnelError(err.code, err.message, err.status);
+    throw err;
+  }
   return {
+    durationMinutes: availability.durationMinutes,
     days: availability.days.map((d) => {
       const noon = new Date(`${d.date}T06:30:00Z`); // 12:00 IST
       return {
@@ -209,22 +283,36 @@ export async function getSlots(token: string) {
         weekday: noon.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", weekday: "short" }),
         dayMonth: noon.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short" }),
         label: formatDay(noon),
-        slots: d.slots.map((s) => ({ slotId: s.slotId, time: formatTime(s.start), start: s.start.toISOString() })),
+        slots: d.slots.map((s) => ({
+          slotId: s.slotId,
+          time: formatTime(s.start),
+          start: s.start.toISOString(),
+          feePaise: s.feePaise ?? centre.feeInr * 100,
+          mode: s.mode ?? "offline",
+        })),
       };
     }),
   };
 }
 
-export async function holdSlot(token: string, slotId: string) {
+export async function holdSlot(token: string, slotId: string, opts: { email?: string | null } = {}) {
   const ref = refFromToken(token);
   const a = await loadAppointment(ref);
   if (isPaid(a.status)) throw new FunnelError("already_paid", "This booking is already paid.", 409);
   const db = await getDb();
-  const [c] = await db.select().from(contacts).where(eq(contacts.id, a.contactId));
+  let [c] = await db.select().from(contacts).where(eq(contacts.id, a.contactId));
+  if (!c) throw new FunnelError("not_found", "Booking not found", 404);
+  // Online consultations need an email (I AM app sign-in); the guest can add it at this step.
+  const email = opts.email?.trim().toLowerCase();
+  if (email && email !== c.email) {
+    [c] = await db.update(contacts).set({ email }).where(eq(contacts.id, c.id)).returning();
+    await queueSlixta.contact(c!.id);
+  }
   if (!c) throw new FunnelError("not_found", "Booking not found", 404);
   const { calendar } = integrations();
 
-  if (a.reservationId && ["held", "payment_pending", "payment_failed"].includes(a.status)) {
+  // Release the previous hold only if no payment for it can still arrive (see hasOpenOrder).
+  if (a.reservationId && ["details", "held", "payment_pending", "payment_failed"].includes(a.status) && !(await hasOpenOrder(a.id))) {
     await calendar.releaseHold(a.reservationId).catch(() => {});
   }
 
@@ -237,7 +325,8 @@ export async function holdSlot(token: string, slotId: string) {
         ttlSeconds: HOLD_TTL_SECONDS,
         channel: a.channel,
         centre: a.centre,
-        customer: { name: a.bookerName, phone: c.phone, language: a.language },
+        programme: a.programme,
+        customer: { name: a.bookerName, phone: c.phone, email: c.email, language: a.language },
       },
       `hold-${ref}-${randomUUID()}`,
     );
@@ -245,8 +334,12 @@ export async function holdSlot(token: string, slotId: string) {
     if (err instanceof SlotUnavailableError) {
       throw new FunnelError("slot_unavailable", "Sorry, that time was just taken. Please choose another.", 409);
     }
+    if (err instanceof HoldRefusedError) throw new FunnelError(err.code, err.message, err.status);
     throw err;
   }
+
+  // I AM locks the doctor's fee at hold (guide 6.5): the guest pays exactly that.
+  const charge = hold.feePaise ?? null;
 
   const [updated] = await db
     .update(appointments)
@@ -259,6 +352,9 @@ export async function holdSlot(token: string, slotId: string) {
       reservationId: hold.reservationId,
       holdExpiresAt: hold.expiresAt,
       holdExtended: false,
+      chargePaise: charge,
+      resourceName: hold.resourceName ?? null,
+      consultMode: hold.mode ?? "offline",
     })
     .where(eq(appointments.id, a.id))
     .returning();
@@ -292,14 +388,23 @@ export async function holdSlot(token: string, slotId: string) {
   return {
     when: appt.slotStart ? formatWhen(appt.slotStart) : "",
     holdExpiresAt: hold.expiresAt.toISOString(),
+    amountPaise: chargePaise(appt),
+    doctor: appt.resourceName,
+    mode: appt.consultMode as "offline" | "online",
   };
 }
 
 export async function releaseSlot(token: string) {
   const a = await loadAppointment(refFromToken(token));
   if (isPaid(a.status)) return;
-  if (a.reservationId) await integrations().calendar.releaseHold(a.reservationId).catch(() => {});
   const db = await getDb();
+  if (a.reservationId && (await hasOpenOrder(a.id))) {
+    // A payment may still land: keep the hold reference so it can be confirmed; it expires on its own.
+    await db.update(appointments).set({ status: "details", holdExpiresAt: null }).where(eq(appointments.id, a.id));
+    await logEvent({ type: "slot_left_open", source: "web_form", contactId: a.contactId, appointmentId: a.id });
+    return;
+  }
+  if (a.reservationId) await integrations().calendar.releaseHold(a.reservationId).catch(() => {});
   await db
     .update(appointments)
     .set({ status: "details", reservationId: null, holdExpiresAt: null })
@@ -353,7 +458,7 @@ export async function createPaymentOrder(token: string, opts: { promotional: boo
   }
 
   // Extend the hold once if checkout opens with under 5 minutes left (docs/03, endpoint 4).
-  if (!a.holdExtended && a.holdExpiresAt.getTime() - now < EXTEND_WHEN_LEFT_MS) {
+  if (calendar.supportsHoldExtension && !a.holdExtended && a.holdExpiresAt.getTime() - now < EXTEND_WHEN_LEFT_MS) {
     try {
       const { expiresAt } = await calendar.extendHold(a.reservationId, EXTEND_BY_SECONDS);
       [a] = await db.update(appointments).set({ holdExpiresAt: expiresAt, holdExtended: true }).where(eq(appointments.id, a.id)).returning() as [Appointment];
@@ -364,7 +469,7 @@ export async function createPaymentOrder(token: string, opts: { promotional: boo
   }
 
   const order = await pay.createOrder({
-    amountPaise: a.feeInr * 100,
+    amountPaise: chargePaise(a),
     receipt: ref,
     notes: { lead_id: c.id, centre_id: a.centre, appointment_ref: ref },
   });
@@ -386,7 +491,7 @@ export async function createPaymentOrder(token: string, opts: { promotional: boo
   await queueSlixta.activity({ contactId: c.id, type: "payment_started", key: `pay-start-${order.id}`, appointmentRef: ref, data: { order_id: order.id } });
   await enqueue(
     "meta.capi",
-    { eventName: "InitiateCheckout", eventId, eventTime: new Date().toISOString(), phone: c.phone, email: c.email, value: a.feeInr, clientIp: meta.ip ?? null, userAgent: meta.userAgent ?? null },
+    { eventName: "InitiateCheckout", eventId, eventTime: new Date().toISOString(), phone: c.phone, email: c.email, value: chargePaise(a) / 100, clientIp: meta.ip ?? null, userAgent: meta.userAgent ?? null },
     { dedupeKey: `capi:${eventId}` },
   );
 
@@ -484,8 +589,9 @@ export async function handlePaymentCaptured(p: CapturedPayment): Promise<void> {
   const [a] = await db.select().from(appointments).where(eq(appointments.id, payment.appointmentId));
   if (!a) return;
 
+  // Compare with the order we created (its amount was the charge at the time).
   const mismatch =
-    p.amountPaise !== a.feeInr * 100 || p.currency !== "INR" || (p.leadId != null && p.leadId !== a.contactId);
+    p.amountPaise !== payment.amountPaise || p.currency !== "INR" || (p.leadId != null && p.leadId !== a.contactId);
   if (mismatch) {
     await db.update(payments).set({ status: "mismatch", paymentId: p.paymentId }).where(eq(payments.id, payment.id));
     await openPaymentIssue({
@@ -493,7 +599,7 @@ export async function handlePaymentCaptured(p: CapturedPayment): Promise<void> {
       appointmentId: a.id,
       appointmentRef: a.ref,
       contactId: a.contactId,
-      detail: { orderId: p.orderId, paymentId: p.paymentId, amountPaise: p.amountPaise, expectedPaise: a.feeInr * 100, leadId: p.leadId },
+      detail: { orderId: p.orderId, paymentId: p.paymentId, amountPaise: p.amountPaise, expectedPaise: payment.amountPaise, leadId: p.leadId },
     });
     return;
   }
@@ -523,37 +629,36 @@ export async function handlePaymentCaptured(p: CapturedPayment): Promise<void> {
   await cancelRecovery(a.ref);
   const paidAt = new Date();
   let status: AppointmentStatus = "paid";
+  let booked = false;
 
+  await db.update(appointments).set({ paidAt }).where(eq(appointments.id, a.id));
   if (!a.reservationId) {
     status = "payment_issue";
     await openPaymentIssue({ type: "paid_booking_missing", appointmentId: a.id, appointmentRef: a.ref, contactId: c.id, detail: { paymentId: p.paymentId } });
   } else {
     try {
       const booking = await integrations().calendar.confirmBooking(
-        {
-          reservationId: a.reservationId,
-          ref: a.ref,
-          customer: { name: a.bookerName, phone: c.phone, email: c.email, patientName: a.patientName, patientIsAdult: a.patientIsAdult, language: a.language },
-          payment: { provider: payment.provider, paymentId: p.paymentId, amountInr: a.feeInr },
-        },
+        confirmInput(a, c, { provider: payment.provider, paymentId: p.paymentId, amountPaise: p.amountPaise, paidAt }),
         `booking-${a.ref}`,
       );
       await db
         .update(appointments)
         .set({ calendarBookingId: booking.ref, slotStart: booking.start, slotEnd: booking.end, holdExpiresAt: null })
         .where(eq(appointments.id, a.id));
+      booked = true;
     } catch (err) {
       if (err instanceof SlotLostError) {
         status = "payment_issue";
-        await openPaymentIssue({ type: "paid_slot_gone", appointmentId: a.id, appointmentRef: a.ref, contactId: c.id, detail: { paymentId: p.paymentId } });
+        await openNotBookedIssue(a, c.id, p.paymentId, err);
       } else {
-        // Calendar unreachable: keep the payment, retry the confirmation from the queue.
-        await enqueue("booking.confirm", { ref: a.ref }, { dedupeKey: `confirm:${a.ref}` });
+        // Outcome unknown (calendar down, timeout): keep the payment, never refund, retry the
+        // same confirmation from the queue until the calendar gives a definite answer.
+        await enqueueConfirmRetry(a.ref, err);
       }
     }
   }
 
-  await db.update(appointments).set({ status, paidAt }).where(eq(appointments.id, a.id));
+  await db.update(appointments).set({ status }).where(eq(appointments.id, a.id));
   await ingestEntryEvent({
     phone: c.phone,
     centre: a.centre,
@@ -570,20 +675,64 @@ export async function handlePaymentCaptured(p: CapturedPayment): Promise<void> {
     type: "payment_captured",
     key: `paid-${p.paymentId}`,
     appointmentRef: a.ref,
-    summary: `Paid ₹${a.feeInr} (${p.paymentId})`,
-    data: { payment_id: p.paymentId, order_id: p.orderId, amount_inr: a.feeInr, notify_owner: true },
+    summary: `Paid ₹${p.amountPaise / 100} (${p.paymentId})`,
+    data: { payment_id: p.paymentId, order_id: p.orderId, amount_inr: p.amountPaise / 100, notify_owner: true },
   });
   await queueSlixta.segment(c.id, "nurture", "remove");
 
   const eventId = `purchase-${a.ref}`;
   await enqueue(
     "meta.capi",
-    { eventName: "Purchase", eventId, eventTime: paidAt.toISOString(), phone: c.phone, email: c.email, value: a.feeInr },
+    { eventName: "Purchase", eventId, eventTime: paidAt.toISOString(), phone: c.phone, email: c.email, value: p.amountPaise / 100 },
     { dedupeKey: `capi:${eventId}` },
   );
 
-  if (status === "paid") await sendConfirmation(a.id);
+  // The receipt goes out only once the booking is really made (retryBookingConfirm sends it otherwise).
+  if (booked) await sendConfirmation(a.id);
 }
+
+function confirmInput(
+  a: Appointment,
+  c: { phone: string; email: string | null },
+  pay: { provider: string; paymentId: string; amountPaise: number; paidAt: Date },
+) {
+  return {
+    reservationId: a.reservationId!,
+    ref: a.ref,
+    customer: {
+      name: a.bookerName,
+      phone: c.phone,
+      email: c.email,
+      patientName: a.patientName,
+      patientIsAdult: a.patientIsAdult,
+      language: a.language,
+      concern: concernFor(a),
+    },
+    payment: { provider: pay.provider, paymentId: pay.paymentId, amountInr: Math.round(pay.amountPaise / 100), amountPaise: pay.amountPaise, paidAt: pay.paidAt },
+  };
+}
+
+/** Confirm said "not booked" after payment: refund (I AM rule) or rebook (own calendar policy). */
+async function openNotBookedIssue(a: Appointment, contactId: string, paymentId: string, err: SlotLostError) {
+  await openPaymentIssue({
+    type: err.detail.refund ? "paid_not_booked" : "paid_slot_gone",
+    appointmentId: a.id,
+    appointmentRef: a.ref,
+    contactId,
+    detail: { paymentId, code: err.detail.code ?? null, reason: err.detail.reason ?? null, ourBug: err.detail.alert ?? false },
+  });
+}
+
+/**
+ * I AM guide 7.3: retry an unknown confirm with backoff until there is a definite answer.
+ * The queue's booking.confirm schedule is 5 s, 15 s, 1 min, then every 5 min for about a week.
+ */
+async function enqueueConfirmRetry(ref: string, err: unknown) {
+  await logEvent({ type: "booking_confirm_unknown", source: "calendar", data: { ref, error: (err as Error)?.message ?? String(err) } });
+  await enqueue("booking.confirm", { ref }, { dedupeKey: `confirm:${ref}`, runAt: new Date(Date.now() + 5_000), maxAttempts: CONFIRM_MAX_ATTEMPTS });
+}
+
+export const CONFIRM_MAX_ATTEMPTS = 2_000;
 
 /** Board section 6: WhatsApp receipt + reminders. */
 export async function sendConfirmation(appointmentId: string): Promise<void> {
@@ -591,6 +740,35 @@ export async function sendConfirmation(appointmentId: string): Promise<void> {
   const [a] = await db.select().from(appointments).where(eq(appointments.id, appointmentId));
   if (!a?.slotStart) return;
   const centre = requireCentre(a.centre);
+
+  // I AM guide 10: online consultations happen in the I AM app; the message must say how to join.
+  if (a.consultMode === "online") {
+    const [online] = await db
+      .select({ email: iamBookings.holdEmail })
+      .from(iamBookings)
+      .where(and(eq(iamBookings.appointmentRef, a.ref), eq(iamBookings.confirmState, "confirmed")))
+      .limit(1);
+    const [c] = await db.select({ email: contacts.email }).from(contacts).where(eq(contacts.id, a.contactId));
+    await queueTemplate({
+      contactId: a.contactId,
+      appointmentId: a.id,
+      template: "booking_confirmed_online",
+      variables: {
+        name: a.bookerName.split(" ")[0] ?? a.bookerName,
+        doctor: a.resourceName ?? "your doctor",
+        date: formatDay(a.slotStart),
+        time: formatTime(a.slotStart),
+        email: online?.email ?? c?.email ?? "",
+        ref: a.ref,
+        amount: `₹${Math.round(chargePaise(a) / 100)}`,
+      },
+      clientRef: `booking_confirmed-${a.ref}`,
+    });
+    await cancelReminders(a.ref);
+    await scheduleReminders(a.id);
+    return;
+  }
+
   await queueTemplate({
     contactId: a.contactId,
     appointmentId: a.id,
@@ -601,7 +779,7 @@ export async function sendConfirmation(appointmentId: string): Promise<void> {
       centre: centre.name,
       address: centre.fullAddress,
       ref: a.ref,
-      amount: `₹${a.feeInr}`,
+      amount: `₹${Math.round(chargePaise(a) / 100)}`,
       reception: centre.receptionPhone,
     },
     buttonParam: `booking/${a.ref}?t=${encodeURIComponent(bookingToken(a.ref, 60))}`,
@@ -611,8 +789,8 @@ export async function sendConfirmation(appointmentId: string): Promise<void> {
   await scheduleReminders(a.id);
 }
 
-/** Job: retry the calendar confirmation when the calendar was unreachable at payment time. */
-export async function retryBookingConfirm(ref: string): Promise<void> {
+/** Job: retry the calendar confirmation when its outcome was unknown at payment time. */
+export async function retryBookingConfirm(ref: string, attempt = 1): Promise<void> {
   const a = await loadAppointment(ref);
   if (a.status !== "paid" || a.calendarBookingId || !a.reservationId) return;
   const db = await getDb();
@@ -621,22 +799,24 @@ export async function retryBookingConfirm(ref: string): Promise<void> {
   if (!c || !p) return;
   try {
     const booking = await integrations().calendar.confirmBooking(
-      {
-        reservationId: a.reservationId,
-        ref: a.ref,
-        customer: { name: a.bookerName, phone: c.phone, email: c.email, patientName: a.patientName, patientIsAdult: a.patientIsAdult, language: a.language },
-        payment: { provider: p.provider, paymentId: p.paymentId ?? "", amountInr: a.feeInr },
-      },
+      confirmInput(a, c, { provider: p.provider, paymentId: p.paymentId ?? "", amountPaise: p.amountPaise, paidAt: a.paidAt ?? p.updatedAt }),
       `booking-${a.ref}`,
     );
-    await db.update(appointments).set({ calendarBookingId: booking.ref, slotStart: booking.start, slotEnd: booking.end }).where(eq(appointments.id, a.id));
+    await db
+      .update(appointments)
+      .set({ calendarBookingId: booking.ref, slotStart: booking.start, slotEnd: booking.end, holdExpiresAt: null })
+      .where(eq(appointments.id, a.id));
+    await logEvent({ type: "booking_confirmed_on_retry", source: "calendar", contactId: a.contactId, appointmentId: a.id, data: { attempt } });
     await queueSlixta.appointment(a.id);
+    await sendConfirmation(a.id);
   } catch (err) {
     if (err instanceof SlotLostError) {
       await db.update(appointments).set({ status: "payment_issue" }).where(eq(appointments.id, a.id));
-      await openPaymentIssue({ type: "paid_slot_gone", appointmentId: a.id, appointmentRef: a.ref, contactId: a.contactId });
+      await openNotBookedIssue(a, a.contactId, p.paymentId ?? "", err);
+      await queueSlixta.appointment(a.id);
       return;
     }
+    if (attempt === 6) alert("booking confirm outcome still unknown after several retries", { ref, error: (err as Error).message });
     throw err;
   }
 }
@@ -674,7 +854,9 @@ export async function onPaymentTimeout(ref: string, reservationId: string, opts:
   if (!["held", "payment_pending", "payment_failed"].includes(a.status)) return;
   if (!opts.fromCalendar && a.holdExpiresAt && a.holdExpiresAt.getTime() > Date.now() + 5_000) return; // extended
 
-  await integrations().calendar.releaseHold(reservationId).catch(() => {});
+  // Release only when no payment can still arrive; otherwise the hold expires on its own and a
+  // late payment can still be confirmed (I AM guide 8.2, "late payments").
+  if (!(await hasOpenOrder(a.id))) await integrations().calendar.releaseHold(reservationId).catch(() => {});
   await db.update(appointments).set({ status: "expired", holdExpiresAt: null }).where(eq(appointments.id, a.id));
   await setStage(a.contactId, "abandoned_failed", "timer", "no payment within 15 minutes");
   await logEvent({ type: "hold_expired", source: opts.fromCalendar ? "calendar" : "timer", contactId: a.contactId, appointmentId: a.id });
@@ -722,6 +904,10 @@ export async function getBookingStatus(token: string, knownRef?: string) {
     case "payment_issue":
       screen = "expiredpaid";
       break;
+    case "paid":
+      // Paid, but the calendar has not answered yet: keep the guest on "confirming".
+      screen = a.calendarBookingId ? "done" : "wait";
+      break;
     default:
       screen = isPaid(a.status) ? "done" : "s2";
   }
@@ -742,5 +928,8 @@ export async function getBookingStatus(token: string, knownRef?: string) {
     slotEnd: a.slotEnd?.toISOString() ?? null,
     holdExpiresAt: holdActive ? a.holdExpiresAt!.toISOString() : null,
     feeInr: a.feeInr,
+    amountPaise: chargePaise(a),
+    doctor: a.resourceName,
+    mode: a.consultMode as "offline" | "online",
   };
 }

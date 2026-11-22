@@ -32,7 +32,7 @@ test("books and pays for a consultation for a parent (test-mode payment)", async
   // Step 2: pick the first available day and time.
   await expect(page.locator(".stepper .on")).toContainText("Day and time");
   await pickRandomSlot(page);
-  await page.getByRole("button", { name: "Continue to payment" }).click();
+  await page.getByRole("button", { name: /Continue to pay/ }).click();
 
   // Step 3
   await expect(page.getByText(/Held for you until/)).toBeVisible();
@@ -54,7 +54,7 @@ test("failed payment keeps the slot and allows a retry", async ({ page }) => {
   await page.locator(".check input").first().check();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await pickRandomSlot(page);
-  await page.getByRole("button", { name: "Continue to payment" }).click();
+  await page.getByRole("button", { name: /Continue to pay/ }).click();
   await page.getByLabel(/I agree to the Terms/).check();
   await page.getByRole("button", { name: /Pay ₹500 and confirm/ }).click();
   await page.getByRole("button", { name: "Payment fails" }).click();

@@ -94,12 +94,18 @@ export const appointments = pgTable(
     slotStart: timestamp("slot_start", { withTimezone: true }),
     slotEnd: timestamp("slot_end", { withTimezone: true }),
     resourceId: text("resource_id"),
+    /** Doctor's name, when the calendar names one (I AM). */
+    resourceName: text("resource_name"),
+    /** offline (centre visit) | online (video call in the I AM app). */
+    consultMode: text("consult_mode").notNull().default("offline"),
     reservationId: text("reservation_id"),
     holdExpiresAt: timestamp("hold_expires_at", { withTimezone: true }),
     holdExtended: boolean("hold_extended").notNull().default(false),
     calendarBookingId: text("calendar_booking_id"),
     slixtaId: text("slixta_id"),
     feeInr: integer("fee_inr").notNull(),
+    /** What the guest is charged, when the calendar locked a price at hold (I AM). Null = fee_inr * 100. */
+    chargePaise: integer("charge_paise"),
     termsAcceptedAt: timestamp("terms_accepted_at", { withTimezone: true }),
     paidAt: timestamp("paid_at", { withTimezone: true }),
     recoveryStartedAt: timestamp("recovery_started_at", { withTimezone: true }),
@@ -212,6 +218,72 @@ export const webhookEvents = pgTable("webhook_events", {
   provider: text("provider").notNull(),
   receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * I AM Partner Booking API (docs/06): one row per I AM hold, from hold through confirm.
+ * Holds the exact confirm body so retries are byte-for-byte identical, and the key fingerprint
+ * so release / confirm / status use the key that made the hold.
+ */
+export const iamBookings = pgTable(
+  "iam_bookings",
+  {
+    id: id(),
+    appointmentRef: text("appointment_ref").notNull(),
+    /** "<centre>/<programme>": which landing page's key was used. */
+    landingPageId: text("landing_page_id").notNull(),
+    /** sha256 prefix of the API key. Never the key itself. */
+    keyFingerprint: text("key_fingerprint").notNull(),
+    /** Our ID, unique per key, generated once per hold and never reused. */
+    partnerBookingId: text("partner_booking_id").notNull(),
+    expertId: text("expert_id").notNull(),
+    expertName: text("expert_name"),
+    mode: text("mode").notNull(),
+    centreCode: text("centre_code"),
+    /** Slot start exactly as I AM returned it. */
+    slotStartRaw: text("slot_start_raw").notNull(),
+    start: timestamp("start", { withTimezone: true }).notNull(),
+    end: timestamp("end", { withTimezone: true }).notNull(),
+    durationMinutes: integer("duration_minutes"),
+    holdId: text("hold_id").notNull(),
+    holdExpiresAt: timestamp("hold_expires_at", { withTimezone: true }).notNull(),
+    /** held | released | expired | confirmed */
+    holdStatus: text("hold_status").notNull(),
+    /** Email sent with the hold (confirm must send the same one). Null = none. */
+    holdEmail: text("hold_email"),
+    /** I AM fee locked at hold. */
+    feePaise: integer("fee_paise").notNull(),
+    discountPaise: integer("discount_paise"),
+    amountPaidPaise: integer("amount_paid_paise"),
+    paymentReference: text("payment_reference"),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    /** Exact JSON string sent to /bookings/confirm/. Text, not jsonb, so key order never changes. */
+    confirmRequestBody: text("confirm_request_body"),
+    /** pending | confirmed | not_booked | unknown_retrying */
+    confirmState: text("confirm_state").notNull().default("pending"),
+    confirmAttempts: integer("confirm_attempts").notNull().default(0),
+    confirmErrorCode: text("confirm_error_code"),
+    confirmErrorReason: text("confirm_error_reason"),
+    /** Last full error response, for support reports (guide 15). */
+    confirmLastResponse: jsonb("confirm_last_response").$type<unknown>(),
+    iamBookingId: text("iam_booking_id"),
+    sessionBookingId: text("session_booking_id"),
+    accountState: text("account_state"),
+    lateConfirmation: boolean("late_confirmation"),
+    /** Last status seen from GET /bookings/{id}/. */
+    iamStatus: text("iam_status"),
+    iamStatusCheckedAt: timestamp("iam_status_checked_at", { withTimezone: true }),
+    /** none | required | done */
+    refundState: text("refund_state").notNull().default("none"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex("iam_bookings_hold_uq").on(t.holdId),
+    uniqueIndex("iam_bookings_partner_uq").on(t.partnerBookingId),
+    index("iam_bookings_ref_idx").on(t.appointmentRef),
+    index("iam_bookings_booking_idx").on(t.iamBookingId),
+  ],
+);
 
 /** Used only by the mock calendar adapter (demo / local), so holds survive across serverless instances. */
 export const devCalendarReservations = pgTable(

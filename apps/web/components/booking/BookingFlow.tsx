@@ -8,7 +8,34 @@ import { api, ApiError } from "./api";
 
 type Screen = "s1" | "s2" | "s3" | "wait" | "waitlong" | "done" | "failed" | "expired" | "expiredpaid";
 
-type Day = { date: string; weekday: string; dayMonth: string; label: string; slots: { slotId: string; time: string; start: string }[] };
+type Mode = "offline" | "online";
+
+type Day = {
+  date: string;
+  weekday: string;
+  dayMonth: string;
+  label: string;
+  slots: { slotId: string; time: string; start: string; feePaise: number; mode: Mode }[];
+};
+
+/** A doctor from the calendar (I AM): everything shown here comes from the API. */
+type Doctor = {
+  id: string;
+  name: string;
+  photoUrl: string | null;
+  specialities: string[];
+  languages: string[];
+  yearsExperience: number | null;
+  bio: string | null;
+  modes: Mode[];
+  feePaise: number;
+  speaksLanguage: boolean;
+};
+
+const MODE_LABEL: Record<Mode, string> = { offline: "At the centre", online: "Online video call" };
+
+/** 2300 -> "23", 4550 -> "45.50" */
+const rupees = (paise: number) => (paise % 100 === 0 ? String(paise / 100) : (paise / 100).toFixed(2));
 
 type Status = {
   ref: string;
@@ -16,6 +43,9 @@ type Status = {
   firstName: string;
   when: string | null;
   holdExpiresAt: string | null;
+  amountPaise: number;
+  doctor: string | null;
+  mode: Mode;
   centre: { name: string; shortAddress: string; mapUrl: string; receptionPhone: string };
 };
 
@@ -33,7 +63,6 @@ type Order = {
 type Props = {
   centre: { slug: string; name: string; shortAddress: string; receptionPhone: string; mapUrl: string };
   programme: { slug: string; label: string; who: string[] };
-  feeInr: number;
 };
 
 declare global {
@@ -75,7 +104,7 @@ function loadRazorpay(): Promise<void> {
   });
 }
 
-export function BookingFlow({ centre, programme, feeInr }: Props) {
+export function BookingFlow({ centre, programme }: Props) {
   const storageKey = `${STORAGE_PREFIX}${centre.slug}_${programme.slug}`;
   const [screen, setScreen] = useState<Screen>("s1");
   const [token, setToken] = useState<string | null>(null);
@@ -95,13 +124,20 @@ export function BookingFlow({ centre, programme, feeInr }: Props) {
   const [company, setCompany] = useState(""); // honeypot
   const [linkToken, setLinkToken] = useState<string | null>(null);
 
-  // Step 2
+  // Step 2. doctors: undefined = loading, null = this calendar has no doctor choice.
+  const [doctors, setDoctors] = useState<Doctor[] | null | undefined>(undefined);
+  const [doctorId, setDoctorId] = useState<string | null>(null);
+  const [mode, setMode] = useState<Mode | null>(null);
   const [days, setDays] = useState<Day[] | null>(null);
   const [day, setDay] = useState<string | null>(null);
   const [slotId, setSlotId] = useState<string | null>(null);
+  const [appEmail, setAppEmail] = useState("");
 
   // Step 3
   const [when, setWhen] = useState("");
+  const [amountPaise, setAmountPaise] = useState<number | null>(null);
+  const [heldDoctor, setHeldDoctor] = useState<string | null>(null);
+  const [heldMode, setHeldMode] = useState<Mode>("offline");
   const [holdUntil, setHoldUntil] = useState<string | null>(null);
   const [terms, setTerms] = useState(false);
   const [promo, setPromo] = useState(false);
@@ -116,18 +152,49 @@ export function BookingFlow({ centre, programme, feeInr }: Props) {
     top.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, []);
 
-  const loadSlots = useCallback(async (t: string) => {
+  const loadSlots = useCallback(async (t: string, doctor?: string | null, m?: Mode | null) => {
     setDays(null);
     setSlotId(null);
+    const q = new URLSearchParams({ token: t });
+    if (doctor) q.set("doctor", doctor);
+    if (m) q.set("mode", m);
     try {
-      const res = await api<{ days: Day[] }>(`/api/slots?token=${encodeURIComponent(t)}`);
+      const res = await api<{ days: Day[] }>(`/api/slots?${q}`);
       setDays(res.days);
-      setDay((d) => d ?? res.days.find((x) => x.slots.length > 0)?.date ?? null);
+      setDay((d) => (d && res.days.some((x) => x.date === d && x.slots.length > 0) ? d : (res.days.find((x) => x.slots.length > 0)?.date ?? null)));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not load times. Please try again.");
       setDays([]);
     }
   }, []);
+
+  const pickDoctor = useCallback(
+    (t: string, d: Doctor, m?: Mode) => {
+      const nextMode = m && d.modes.includes(m) ? m : d.modes.includes("offline") ? "offline" : d.modes[0]!;
+      setDoctorId(d.id);
+      setMode(nextMode);
+      void loadSlots(t, d.id, nextMode);
+    },
+    [loadSlots],
+  );
+
+  /** Step 2: doctors from the calendar if it names them, otherwise straight to times. */
+  const startStep2 = useCallback(
+    async (t: string) => {
+      setDays(null);
+      setSlotId(null);
+      try {
+        const res = await api<{ doctors: Doctor[] | null }>(`/api/doctors?token=${encodeURIComponent(t)}`);
+        setDoctors(res.doctors);
+        if (res.doctors === null) return void loadSlots(t);
+        if (res.doctors.length === 1) pickDoctor(t, res.doctors[0]!);
+      } catch (e) {
+        setError(e instanceof ApiError ? e.message : "Could not load doctors. Please try again.");
+        setDoctors([]);
+      }
+    },
+    [loadSlots, pickDoctor],
+  );
 
   const applyStatus = useCallback(
     (s: Status, t: string, opts: { resume?: boolean } = {}) => {
@@ -135,12 +202,15 @@ export function BookingFlow({ centre, programme, feeInr }: Props) {
       setFirstName(s.firstName);
       if (s.when) setWhen(s.when);
       setHoldUntil(s.holdExpiresAt);
+      setAmountPaise(s.amountPaise);
+      setHeldDoctor(s.doctor);
+      setHeldMode(s.mode);
       let next: Screen = s.screen;
       if (opts.resume && next === "expired") next = "s2"; // resume links go straight to choosing a time
-      if (next === "s2") void loadSlots(t);
+      if (next === "s2") void startStep2(t);
       setScreen(next);
     },
-    [loadSlots],
+    [startStep2],
   );
 
   // Restore from a personal / resume link (?t=) or from this tab's session.
@@ -220,7 +290,7 @@ export function BookingFlow({ centre, programme, feeInr }: Props) {
       setFirstName(res.firstName);
       store(storageKey, res.token);
       go("s2");
-      void loadSlots(res.token);
+      void startStep2(res.token);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Something went wrong. Please try again.");
     } finally {
@@ -234,18 +304,29 @@ export function BookingFlow({ centre, programme, feeInr }: Props) {
       setError("Please choose a day and a time.");
       return;
     }
+    if (needsEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(appEmail.trim())) {
+      setError("Please add your email address. You'll use it to sign in to the I AM app for your online consultation.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      const res = await api<{ when: string; holdExpiresAt: string }>("/api/holds", { method: "POST", body: { token, slotId } });
+      const res = await api<{ when: string; holdExpiresAt: string; amountPaise: number; doctor: string | null; mode: Mode }>("/api/holds", {
+        method: "POST",
+        body: { token, slotId, ...(needsEmail ? { email: appEmail.trim() } : {}) },
+      });
+      if (needsEmail) setEmail(appEmail.trim());
       setWhen(res.when);
       setHoldUntil(res.holdExpiresAt);
+      setAmountPaise(res.amountPaise);
+      setHeldDoctor(res.doctor);
+      setHeldMode(res.mode);
       paying.current = false;
       go("s3");
     } catch (e) {
       if (e instanceof ApiError && e.code === "slot_unavailable") {
         setError(e.message);
-        void loadSlots(token);
+        void loadSlots(token, doctorId, mode);
       } else {
         setError(e instanceof ApiError ? e.message : "Something went wrong. Please try again.");
       }
@@ -259,7 +340,10 @@ export function BookingFlow({ centre, programme, feeInr }: Props) {
     setMockOrder(null);
     paying.current = false;
     go("s2");
-    if (token) void loadSlots(token);
+    if (token) {
+      if (doctors && doctorId) void loadSlots(token, doctorId, mode);
+      else void startStep2(token);
+    }
   }
 
   // ---------------- Step 3 ----------------
@@ -297,7 +381,7 @@ export function BookingFlow({ centre, programme, feeInr }: Props) {
     try {
       const order = await api<Order>("/api/payments/order", { method: "POST", body: { token, termsAccepted: true, promotional: promo } });
       setHoldUntil(order.holdExpiresAt);
-      window.fbq?.("track", "InitiateCheckout", { value: feeInr, currency: "INR" }, { eventID: order.eventId });
+      window.fbq?.("track", "InitiateCheckout", { value: order.amountPaise / 100, currency: "INR" }, { eventID: order.eventId });
       paying.current = true;
       if (order.mode === "mock") {
         setMockOrder(order);
@@ -310,7 +394,7 @@ export function BookingFlow({ centre, programme, feeInr }: Props) {
         currency: order.currency,
         order_id: order.orderId,
         name: "Sri Sri Wellbeing",
-        description: `Nadi Pariksha consultation · ${centre.name}`,
+        description: `Nadi Pariksha consultation${heldDoctor ? ` with ${heldDoctor}` : ""} · ${heldMode === "online" ? "online" : centre.name}`,
         prefill: order.prefill,
         notes: { appointment_ref: ref },
         theme: { color: "#56705A" },
@@ -367,6 +451,9 @@ export function BookingFlow({ centre, programme, feeInr }: Props) {
     setLinkToken(null);
     setDays(null);
     setSlotId(null);
+    setDoctors(undefined);
+    setDoctorId(null);
+    setMode(null);
     setTerms(false);
     setMockOrder(null);
     go("s1");
@@ -374,13 +461,18 @@ export function BookingFlow({ centre, programme, feeInr }: Props) {
 
   const inForm = screen === "s1" || screen === "s2" || screen === "s3";
   const currentDay = days?.find((d) => d.date === day) ?? null;
+  const doctor = doctors?.find((d) => d.id === doctorId) ?? null;
+  const chosenSlot = currentDay?.slots.find((x) => x.slotId === slotId) ?? null;
+  const needsEmail = (chosenSlot?.mode ?? mode) === "online" && !email.trim();
+  const fee = amountPaise != null ? rupees(amountPaise) : null;
+  const showTimes = doctors === null || !!doctor;
 
   return (
     <div className="card" id="flow" ref={top} aria-live="polite">
       {inForm && (
         <div className="stepper">
           <span className={screen === "s1" ? "on" : ""}>1 · Your details</span>
-          <span className={screen === "s2" ? "on" : ""}>2 · Day and time</span>
+          <span className={screen === "s2" ? "on" : ""}>2 · {doctors ? "Doctor and time" : "Day and time"}</span>
           <span className={screen === "s3" ? "on" : ""}>3 · Pay</span>
         </div>
       )}
@@ -462,42 +554,113 @@ export function BookingFlow({ centre, programme, feeInr }: Props) {
 
       {screen === "s2" && (
         <div>
-          <span className="label">Day</span>
-          {days === null ? (
-            <p className="loading">Loading available times…</p>
-          ) : days.every((d) => d.slots.length === 0) ? (
+          {doctors === undefined && <p className="loading">Loading doctors…</p>}
+          {doctors && doctors.length === 0 && (
             <p className="loading">
-              No times are open in the next few days. Please call reception on {centre.receptionPhone} or ask us on WhatsApp.
+              No doctors are taking bookings right now. Please call reception on {centre.receptionPhone} or ask us on WhatsApp.
             </p>
-          ) : (
+          )}
+          {doctors && doctors.length > 0 && (
             <>
-              <div className="chips" role="group" aria-label="Day">
-                {days.map((d) => (
+              <span className="label">Doctor</span>
+              <div className="doctors" role="group" aria-label="Doctor">
+                {doctors.map((d) => (
                   <button
-                    key={d.date}
+                    key={d.id}
                     type="button"
-                    className="chip"
-                    aria-pressed={day === d.date}
-                    disabled={d.slots.length === 0}
-                    aria-label={d.label}
-                    onClick={() => {
-                      setDay(d.date);
-                      setSlotId(null);
-                    }}
+                    className="doc"
+                    aria-pressed={doctorId === d.id}
+                    onClick={() => token && pickDoctor(token, d, mode ?? undefined)}
                   >
-                    {d.weekday}
-                    <small>{d.dayMonth}</small>
+                    <span className="doc-top">
+                      <span className="doc-name">{d.name}</span>
+                      <span className="doc-fee">₹{rupees(d.feePaise)}</span>
+                    </span>
+                    {d.specialities.length > 0 && <span className="doc-meta">{d.specialities.join(", ")}</span>}
+                    <span className="doc-meta">
+                      {[
+                        d.yearsExperience ? `${d.yearsExperience} years' experience` : null,
+                        d.languages.length > 0 ? d.languages.join(", ") : null,
+                        d.modes.map((m) => MODE_LABEL[m]).join(" · "),
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
                   </button>
                 ))}
               </div>
-              <span className="label">Time</span>
-              <div className="chips" role="group" aria-label="Time">
-                {currentDay?.slots.map((s) => (
-                  <button key={s.slotId} type="button" className="chip" aria-pressed={slotId === s.slotId} onClick={() => setSlotId(s.slotId)}>
-                    {s.time}
-                  </button>
-                ))}
-              </div>
+              {doctor && doctor.modes.length > 1 && (
+                <>
+                  <span className="label">How would you like to meet?</span>
+                  <div className="chips" role="group" aria-label="Consultation type">
+                    {doctor.modes.map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        className="chip"
+                        aria-pressed={mode === m}
+                        onClick={() => token && pickDoctor(token, doctor, m)}
+                      >
+                        {MODE_LABEL[m]}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
+          )}
+
+          {showTimes && (
+            <>
+              <span className="label">Day</span>
+              {days === null ? (
+                <p className="loading">Loading available times…</p>
+              ) : days.every((d) => d.slots.length === 0) ? (
+                <p className="loading">
+                  {doctor ? `${doctor.name} has no free times in the next few days. Please choose another doctor, or ` : "No times are open in the next few days. Please "}
+                  call reception on {centre.receptionPhone} or ask us on WhatsApp.
+                </p>
+              ) : (
+                <>
+                  <div className="chips" role="group" aria-label="Day">
+                    {days.map((d) => (
+                      <button
+                        key={d.date}
+                        type="button"
+                        className="chip"
+                        aria-pressed={day === d.date}
+                        disabled={d.slots.length === 0}
+                        aria-label={d.label}
+                        onClick={() => {
+                          setDay(d.date);
+                          setSlotId(null);
+                        }}
+                      >
+                        {d.weekday}
+                        <small>{d.dayMonth}</small>
+                      </button>
+                    ))}
+                  </div>
+                  <span className="label">Time</span>
+                  <div className="chips" role="group" aria-label="Time">
+                    {currentDay?.slots.map((x) => (
+                      <button key={x.slotId} type="button" className="chip" aria-pressed={slotId === x.slotId} onClick={() => setSlotId(x.slotId)}>
+                        {x.time}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
+          )}
+
+          {needsEmail && (
+            <>
+              <label htmlFor="appem">Email for the I AM app</label>
+              <input id="appem" type="email" autoComplete="email" value={appEmail} onChange={(e) => setAppEmail(e.target.value)} />
+              <p className="small" style={{ margin: "6px 0 0" }}>
+                Online consultations happen in the I AM app. You&apos;ll sign in with this email.
+              </p>
             </>
           )}
           <p className="small" style={{ margin: "12px 0 0" }}>
@@ -506,7 +669,7 @@ export function BookingFlow({ centre, programme, feeInr }: Props) {
           {error && <div className="err">{error}</div>}
           <p style={{ margin: "18px 0 0" }}>
             <button className="btn" type="button" disabled={busy || !slotId} onClick={() => void holdTime()}>
-              {busy ? "Holding your time…" : "Continue to payment"}
+              {busy ? "Holding your time…" : chosenSlot ? `Continue to pay ₹${rupees(chosenSlot.feePaise)}` : "Continue to payment"}
             </button>
           </p>
           <p style={{ margin: "10px 0 0" }}>
@@ -521,11 +684,11 @@ export function BookingFlow({ centre, programme, feeInr }: Props) {
         <div>
           <div className="summary">
             <div>
-              Nadi Pariksha consultation · {centre.name}
+              Nadi Pariksha consultation{heldDoctor ? ` with ${heldDoctor}` : ""} · {heldMode === "online" ? MODE_LABEL.online : centre.name}
             </div>
             <div>{when}</div>
             <div className="amt">
-              ₹{feeInr} <span className="small ph">inclusive of all taxes (to be confirmed)</span>
+              ₹{fee} <span className="small ph">inclusive of all taxes (to be confirmed)</span>
             </div>
           </div>
           {holdUntil && (
@@ -548,7 +711,7 @@ export function BookingFlow({ centre, programme, feeInr }: Props) {
             appointment.
           </p>
           <p className="small" style={{ margin: "10px 0 0" }}>
-            The ₹{feeInr} fee is non-refundable once your booking is confirmed. To change your time, call reception on{" "}
+            The ₹{fee} fee is non-refundable once your booking is confirmed. To change your time, call reception on{" "}
             {centre.receptionPhone}. If a technical problem means you were charged twice, or you paid and we can&apos;t offer you a
             slot, the amount is returned to you.
           </p>
@@ -556,7 +719,7 @@ export function BookingFlow({ centre, programme, feeInr }: Props) {
           {!mockOrder && (
             <p style={{ margin: "18px 0 0" }}>
               <button className="btn" type="button" disabled={busy} onClick={() => void pay()}>
-                {busy ? "Opening payment…" : `Pay ₹${feeInr} and confirm`}
+                {busy ? "Opening payment…" : `Pay ₹${fee} and confirm`}
               </button>
             </p>
           )}
@@ -608,16 +771,27 @@ export function BookingFlow({ centre, programme, feeInr }: Props) {
         <div>
           <h3>You&apos;re booked, {firstName || "and all set"}.</h3>
           <hr className="rule" />
-          <p>
-            {when} at {centre.name}, {centre.shortAddress}.
-          </p>
+          {heldMode === "online" ? (
+            <p>
+              {when}, online{heldDoctor ? ` with ${heldDoctor}` : ""}. Download the I AM app and sign in with {email || "the email you gave us"}{" "}
+              (Continue with Google, Sign up, or Forgot password). Your consultation will be waiting in your sessions: join a few
+              minutes before the start.
+            </p>
+          ) : (
+            <p>
+              {when}
+              {heldDoctor ? ` with ${heldDoctor}` : ""} at {centre.name}, {centre.shortAddress}.
+            </p>
+          )}
           <p>
             Your confirmation and receipt are on their way to WhatsApp. Booking reference: <b>{ref}</b>.
           </p>
           <p style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: 0 }}>
-            <a className="btn ghost" href={centre.mapUrl} target="_blank" rel="noopener">
-              Open in Maps
-            </a>
+            {heldMode !== "online" && (
+              <a className="btn ghost" href={centre.mapUrl} target="_blank" rel="noopener">
+                Open in Maps
+              </a>
+            )}
             {token && (
               <a className="btn ghost" href={`/api/bookings/ics?token=${encodeURIComponent(token)}`}>
                 Add to calendar
@@ -659,7 +833,7 @@ export function BookingFlow({ centre, programme, feeInr }: Props) {
               type="button"
               onClick={() => {
                 go("s2");
-                if (token) void loadSlots(token);
+                if (token) void startStep2(token);
               }}
             >
               Choose a time

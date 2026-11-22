@@ -63,7 +63,6 @@ export default async function LandingPage({ params }: { params: Promise<Params> 
                 mapUrl: centre.mapUrl,
               }}
               programme={{ slug: programme.slug, label: programme.label, who: programme.who }}
-              feeInr={centre.feeInr}
             />
           </div>
         </section>
@@ -76,7 +75,7 @@ export default async function LandingPage({ params }: { params: Promise<Params> 
         <Faq programme={programme} />
       </main>
       <SiteFooter centre={centre} programme={programme} />
-      <StickyBar fee={centre.feeInr} />
+      <StickyBar />
     </>
   );
 }

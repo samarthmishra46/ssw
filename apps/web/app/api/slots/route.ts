@@ -1,11 +1,16 @@
-import { FunnelError, getSlots } from "@ssw/funnel";
+import { slotsQuerySchema } from "@ssw/core/schemas";
+import { getSlots } from "@ssw/funnel";
 import { route } from "@/lib/route";
 
 export const dynamic = "force-dynamic";
 
-/** Step 2: live slots from our calendar for this booking's centre and language. */
+/** Step 2: live slots for this booking's centre and language, optionally for one doctor and mode. */
 export const GET = route(async (req) => {
-  const token = req.nextUrl.searchParams.get("token");
-  if (!token) throw new FunnelError("invalid", "Missing token", 400);
-  return getSlots(token);
+  const q = req.nextUrl.searchParams;
+  const { token, doctor, mode } = slotsQuerySchema.parse({
+    token: q.get("token") ?? undefined,
+    doctor: q.get("doctor") || undefined,
+    mode: q.get("mode") || undefined,
+  });
+  return getSlots(token, { doctorId: doctor, mode });
 });

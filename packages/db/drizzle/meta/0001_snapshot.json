@@ -1,0 +1,1608 @@
+{
+  "id": "e16aed7d-13fa-486f-a4da-437867c31d76",
+  "prevId": "9d9ac3cf-4997-4854-bb3b-96f4a5273e7a",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.appointments": {
+      "name": "appointments",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "ref": {
+          "name": "ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "contact_id": {
+          "name": "contact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "centre": {
+          "name": "centre",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "programme": {
+          "name": "programme",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel": {
+          "name": "channel",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "who": {
+          "name": "who",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "booker_name": {
+          "name": "booker_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "patient_name": {
+          "name": "patient_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "patient_is_adult": {
+          "name": "patient_is_adult",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "language": {
+          "name": "language",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "slot_id": {
+          "name": "slot_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "slot_start": {
+          "name": "slot_start",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "slot_end": {
+          "name": "slot_end",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resource_id": {
+          "name": "resource_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resource_name": {
+          "name": "resource_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "consult_mode": {
+          "name": "consult_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'offline'"
+        },
+        "reservation_id": {
+          "name": "reservation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "hold_expires_at": {
+          "name": "hold_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "hold_extended": {
+          "name": "hold_extended",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "calendar_booking_id": {
+          "name": "calendar_booking_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "slixta_id": {
+          "name": "slixta_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fee_inr": {
+          "name": "fee_inr",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "charge_paise": {
+          "name": "charge_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "terms_accepted_at": {
+          "name": "terms_accepted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "paid_at": {
+          "name": "paid_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "recovery_started_at": {
+          "name": "recovery_started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "appointments_ref_uq": {
+          "name": "appointments_ref_uq",
+          "columns": [
+            {
+              "expression": "ref",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "appointments_contact_idx": {
+          "name": "appointments_contact_idx",
+          "columns": [
+            {
+              "expression": "contact_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "appointments_contact_id_contacts_id_fk": {
+          "name": "appointments_contact_id_contacts_id_fk",
+          "tableFrom": "appointments",
+          "tableTo": "contacts",
+          "columnsFrom": [
+            "contact_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.consents": {
+      "name": "consents",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "contact_id": {
+          "name": "contact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "granted": {
+          "name": "granted",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "text": {
+          "name": "text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "text_version": {
+          "name": "text_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "page": {
+          "name": "page",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ip": {
+          "name": "ip",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user_agent": {
+          "name": "user_agent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "appointment_ref": {
+          "name": "appointment_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "captured_at": {
+          "name": "captured_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "consents_contact_idx": {
+          "name": "consents_contact_idx",
+          "columns": [
+            {
+              "expression": "contact_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "consents_contact_id_contacts_id_fk": {
+          "name": "consents_contact_id_contacts_id_fk",
+          "tableFrom": "consents",
+          "tableTo": "contacts",
+          "columnsFrom": [
+            "contact_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.contacts": {
+      "name": "contacts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "phone": {
+          "name": "phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "language": {
+          "name": "language",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "concern": {
+          "name": "concern",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "centre": {
+          "name": "centre",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stage": {
+          "name": "stage",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "slixta_id": {
+          "name": "slixta_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "opted_out": {
+          "name": "opted_out",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "wrong_number": {
+          "name": "wrong_number",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "human_active": {
+          "name": "human_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "automation_paused": {
+          "name": "automation_paused",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "promotional_consent": {
+          "name": "promotional_consent",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "first_source": {
+          "name": "first_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_source": {
+          "name": "last_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "first_attribution": {
+          "name": "first_attribution",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "last_attribution": {
+          "name": "last_attribution",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "last_touch_at": {
+          "name": "last_touch_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "contacts_phone_uq": {
+          "name": "contacts_phone_uq",
+          "columns": [
+            {
+              "expression": "phone",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "contacts_slixta_idx": {
+          "name": "contacts_slixta_idx",
+          "columns": [
+            {
+              "expression": "slixta_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.dev_calendar_reservations": {
+      "name": "dev_calendar_reservations",
+      "schema": "",
+      "columns": {
+        "reservation_id": {
+          "name": "reservation_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "slot_id": {
+          "name": "slot_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "centre": {
+          "name": "centre",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ref": {
+          "name": "ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "start": {
+          "name": "start",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "end": {
+          "name": "end",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "dev_cal_slot_idx": {
+          "name": "dev_cal_slot_idx",
+          "columns": [
+            {
+              "expression": "slot_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "dev_cal_booked_uq": {
+          "name": "dev_cal_booked_uq",
+          "columns": [
+            {
+              "expression": "slot_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "status = 'booked'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.events": {
+      "name": "events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "contact_id": {
+          "name": "contact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "appointment_id": {
+          "name": "appointment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "data": {
+          "name": "data",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "events_contact_idx": {
+          "name": "events_contact_idx",
+          "columns": [
+            {
+              "expression": "contact_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "events_type_idx": {
+          "name": "events_type_idx",
+          "columns": [
+            {
+              "expression": "type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.iam_bookings": {
+      "name": "iam_bookings",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "appointment_ref": {
+          "name": "appointment_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "landing_page_id": {
+          "name": "landing_page_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "key_fingerprint": {
+          "name": "key_fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "partner_booking_id": {
+          "name": "partner_booking_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expert_id": {
+          "name": "expert_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expert_name": {
+          "name": "expert_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "mode": {
+          "name": "mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "centre_code": {
+          "name": "centre_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "slot_start_raw": {
+          "name": "slot_start_raw",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "start": {
+          "name": "start",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "end": {
+          "name": "end",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "duration_minutes": {
+          "name": "duration_minutes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "hold_id": {
+          "name": "hold_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "hold_expires_at": {
+          "name": "hold_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "hold_status": {
+          "name": "hold_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "hold_email": {
+          "name": "hold_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fee_paise": {
+          "name": "fee_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "discount_paise": {
+          "name": "discount_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "amount_paid_paise": {
+          "name": "amount_paid_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "payment_reference": {
+          "name": "payment_reference",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "paid_at": {
+          "name": "paid_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "confirm_request_body": {
+          "name": "confirm_request_body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "confirm_state": {
+          "name": "confirm_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "confirm_attempts": {
+          "name": "confirm_attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "confirm_error_code": {
+          "name": "confirm_error_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "confirm_error_reason": {
+          "name": "confirm_error_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "confirm_last_response": {
+          "name": "confirm_last_response",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "iam_booking_id": {
+          "name": "iam_booking_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "session_booking_id": {
+          "name": "session_booking_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "account_state": {
+          "name": "account_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "late_confirmation": {
+          "name": "late_confirmation",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "iam_status": {
+          "name": "iam_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "iam_status_checked_at": {
+          "name": "iam_status_checked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "refund_state": {
+          "name": "refund_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'none'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "iam_bookings_hold_uq": {
+          "name": "iam_bookings_hold_uq",
+          "columns": [
+            {
+              "expression": "hold_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "iam_bookings_partner_uq": {
+          "name": "iam_bookings_partner_uq",
+          "columns": [
+            {
+              "expression": "partner_booking_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "iam_bookings_ref_idx": {
+          "name": "iam_bookings_ref_idx",
+          "columns": [
+            {
+              "expression": "appointment_ref",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "iam_bookings_booking_idx": {
+          "name": "iam_bookings_booking_idx",
+          "columns": [
+            {
+              "expression": "iam_booking_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.jobs": {
+      "name": "jobs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payload": {
+          "name": "payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "run_at": {
+          "name": "run_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "attempts": {
+          "name": "attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "max_attempts": {
+          "name": "max_attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 8
+        },
+        "last_error": {
+          "name": "last_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dedupe_key": {
+          "name": "dedupe_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "locked_until": {
+          "name": "locked_until",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "jobs_dedupe_uq": {
+          "name": "jobs_dedupe_uq",
+          "columns": [
+            {
+              "expression": "dedupe_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "jobs_due_idx": {
+          "name": "jobs_due_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "run_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.messages": {
+      "name": "messages",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "contact_id": {
+          "name": "contact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "appointment_id": {
+          "name": "appointment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "direction": {
+          "name": "direction",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel": {
+          "name": "channel",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'whatsapp'"
+        },
+        "template": {
+          "name": "template",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "body": {
+          "name": "body",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "client_ref": {
+          "name": "client_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provider_message_id": {
+          "name": "provider_message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "error": {
+          "name": "error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "messages_client_ref_uq": {
+          "name": "messages_client_ref_uq",
+          "columns": [
+            {
+              "expression": "client_ref",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "messages_provider_idx": {
+          "name": "messages_provider_idx",
+          "columns": [
+            {
+              "expression": "provider_message_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "messages_contact_id_contacts_id_fk": {
+          "name": "messages_contact_id_contacts_id_fk",
+          "tableFrom": "messages",
+          "tableTo": "contacts",
+          "columnsFrom": [
+            "contact_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "messages_appointment_id_appointments_id_fk": {
+          "name": "messages_appointment_id_appointments_id_fk",
+          "tableFrom": "messages",
+          "tableTo": "appointments",
+          "columnsFrom": [
+            "appointment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.payment_issues": {
+      "name": "payment_issues",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "appointment_id": {
+          "name": "appointment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "contact_id": {
+          "name": "contact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'open'"
+        },
+        "detail": {
+          "name": "detail",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "resolution": {
+          "name": "resolution",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "resolved_at": {
+          "name": "resolved_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "payment_issues_appointment_id_appointments_id_fk": {
+          "name": "payment_issues_appointment_id_appointments_id_fk",
+          "tableFrom": "payment_issues",
+          "tableTo": "appointments",
+          "columnsFrom": [
+            "appointment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "payment_issues_contact_id_contacts_id_fk": {
+          "name": "payment_issues_contact_id_contacts_id_fk",
+          "tableFrom": "payment_issues",
+          "tableTo": "contacts",
+          "columnsFrom": [
+            "contact_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.payments": {
+      "name": "payments",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "appointment_id": {
+          "name": "appointment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "order_id": {
+          "name": "order_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "payment_link_id": {
+          "name": "payment_link_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "payment_id": {
+          "name": "payment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "amount_paise": {
+          "name": "amount_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "currency": {
+          "name": "currency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'INR'"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "method": {
+          "name": "method",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_reason": {
+          "name": "failure_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "raw": {
+          "name": "raw",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "payments_order_uq": {
+          "name": "payments_order_uq",
+          "columns": [
+            {
+              "expression": "order_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "payments_appointment_idx": {
+          "name": "payments_appointment_idx",
+          "columns": [
+            {
+              "expression": "appointment_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "payments_appointment_id_appointments_id_fk": {
+          "name": "payments_appointment_id_appointments_id_fk",
+          "tableFrom": "payments",
+          "tableTo": "appointments",
+          "columnsFrom": [
+            "appointment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.webhook_events": {
+      "name": "webhook_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "received_at": {
+          "name": "received_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

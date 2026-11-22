@@ -50,7 +50,18 @@ export type DetailsInput = z.input<typeof detailsSchema>;
 /** Every call after step 1 carries the signed booking token returned by step 1 (no guessable refs). */
 const token = z.string().min(10).max(1000);
 
-export const holdSchema = z.object({ token, slotId: z.string().min(1).max(100) });
+export const holdSchema = z.object({
+  token,
+  slotId: z.string().min(1).max(120),
+  /** Online consultations need an email; the guest can add it when choosing the time. */
+  email: z.union([z.literal(""), z.email("Please check the email address")]).optional(),
+});
+
+export const slotsQuerySchema = z.object({
+  token,
+  doctor: z.string().uuid().optional(),
+  mode: z.enum(["offline", "online"]).optional(),
+});
 
 export const releaseSchema = z.object({ token });
 

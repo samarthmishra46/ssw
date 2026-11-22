@@ -12,8 +12,9 @@ export const CONSENT_TEXTS = {
     text: "I confirm I have their permission to share their details.",
   },
   terms_no_refund: {
-    version: "web-2026-11-v1",
-    text: "I agree to the Terms and the Refund and Rescheduling Policy. The ₹500 consultation fee is non-refundable once my booking is confirmed.",
+    // v2: the fee is the chosen doctor's (from I AM), so the wording no longer names an amount.
+    version: "web-2026-11-v2",
+    text: "I agree to the Terms and the Refund and Rescheduling Policy. The consultation fee is non-refundable once my booking is confirmed.",
   },
   promotional: {
     version: "web-2026-11-v1",

@@ -5,22 +5,87 @@ import { IntegrationError, jsonRequest } from "./http";
 
 /** Client for our own calendar app, specified in docs/03-calendar-integration.md. */
 
-export type Slot = { slotId: string; start: Date; end: Date; resourceId?: string | null };
+export type ConsultMode = "offline" | "online";
+
+export type Slot = {
+  slotId: string;
+  start: Date;
+  end: Date;
+  resourceId?: string | null;
+  /** Price of this slot, when the calendar sets prices (I AM). */
+  feePaise?: number | null;
+  mode?: ConsultMode;
+};
+
+/** A doctor the guest can choose (I AM). */
+export type Resource = {
+  id: string;
+  name: string;
+  photoUrl: string | null;
+  specialities: string[];
+  languages: string[];
+  yearsExperience: number | null;
+  bio: string | null;
+  modes: ConsultMode[];
+  feePaise: number;
+  /** Earliest free slot per mode (ISO), if the calendar says. */
+  nextAvailable: Partial<Record<ConsultMode, string | null>>;
+  /** True when the doctor lists the guest's preferred language. */
+  speaksLanguage: boolean;
+};
 export type AvailabilityDay = { date: string; slots: Slot[] };
 export type Availability = { centre: string; durationMinutes: number; days: AvailabilityDay[] };
 
-export type Hold = { reservationId: string; slotId: string; start: Date; end: Date; resourceId: string | null; expiresAt: Date };
+export type Hold = {
+  reservationId: string;
+  slotId: string;
+  start: Date;
+  end: Date;
+  resourceId: string | null;
+  /** When our checkout must close. May be earlier than the calendar's own expiry (safety buffer). */
+  expiresAt: Date;
+  /** Price the calendar locked at hold, if it sets one (I AM). The guest pays this. */
+  feePaise?: number | null;
+  resourceName?: string | null;
+  mode?: ConsultMode;
+};
 
 export type BookingResult = { ref: string; start: Date; end: Date; resourceName: string | null };
+
+/** Current state of a confirmed booking, read just before reminders (I AM guide 7.4). */
+export type BookingLookup = {
+  status: "confirmed" | "in_progress" | "completed" | "cancelled" | "no_show" | "other";
+  start: Date;
+  end: Date;
+  resourceName: string | null;
+};
 
 export class SlotUnavailableError extends Error {
   constructor() {
     super("slot_unavailable");
   }
 }
+
+/**
+ * Confirm gave a definite "not booked" after payment. The guest must be refunded
+ * (or rebooked, per policy). `detail.alert` marks a bug on our side.
+ */
 export class SlotLostError extends Error {
-  constructor() {
-    super("slot_lost");
+  constructor(
+    readonly detail: { code?: string | null; reason?: string | null; alert?: boolean; refund?: boolean } = {},
+  ) {
+    super(detail.code ? `slot_lost (${detail.code})` : "slot_lost");
+  }
+}
+
+/** The calendar refused a hold for a reason the visitor can act on. `message` is shown to them. */
+export class HoldRefusedError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly status = 409,
+  ) {
+    super(message);
   }
 }
 
@@ -30,29 +95,66 @@ export type HoldInput = {
   ttlSeconds: number;
   channel: string;
   centre: string;
-  customer: { name: string; phone: string; language: string };
+  programme: string;
+  customer: { name: string; phone: string; email?: string | null; language: string };
 };
 
 export type ConfirmInput = {
   reservationId: string;
   ref: string;
-  customer: { name: string; phone: string; email: string | null; patientName: string; patientIsAdult: boolean; language: string };
-  payment: { provider: string; paymentId: string; amountInr: number };
+  customer: {
+    name: string;
+    phone: string;
+    email: string | null;
+    patientName: string;
+    patientIsAdult: boolean;
+    language: string;
+    /** Short note for the doctor, e.g. the programme and who booked. */
+    concern?: string | null;
+  };
+  payment: { provider: string; paymentId: string; amountInr: number; amountPaise: number; paidAt: Date };
 };
 
+export type AvailabilityQuery = {
+  centre: string;
+  programme?: string;
+  service: string;
+  from: string;
+  to: string;
+  language?: string;
+  /** Only this doctor (from listResources). */
+  resourceId?: string;
+  mode?: ConsultMode;
+};
+
+export type ResourceQuery = { centre: string; programme?: string; language?: string };
+
 export interface CalendarClient {
-  readonly mode: "http" | "mock";
-  getAvailability(q: { centre: string; service: string; from: string; to: string; language?: string }): Promise<Availability>;
+  readonly mode: "http" | "mock" | "iam";
+  /** False when holds cannot be extended (I AM): the funnel then never calls extendHold. */
+  readonly supportsHoldExtension: boolean;
+  getAvailability(q: AvailabilityQuery): Promise<Availability>;
   createHold(input: HoldInput, idempotencyKey: string): Promise<Hold>;
   releaseHold(reservationId: string): Promise<void>;
   extendHold(reservationId: string, extraSeconds: number): Promise<{ expiresAt: Date }>;
+  /**
+   * Throws SlotLostError for a definite "not booked". Any other error means the outcome is
+   * unknown: keep the payment and retry with the same input (never refund).
+   */
   confirmBooking(input: ConfirmInput, idempotencyKey: string): Promise<BookingResult>;
+  /** Latest state of a confirmed booking, by `BookingResult.ref`. Null if the calendar has no lookup. */
+  getBooking?(bookingRef: string): Promise<BookingLookup | null>;
+  /** Doctors the guest chooses from. Calendars without it show one slot grid per centre. */
+  listResources?(q: ResourceQuery): Promise<Resource[]>;
+  /** Day the booking window starts: "today" when the calendar enforces its own minimum notice. */
+  readonly windowStartsToday?: boolean;
 }
 
 type ApiSlot = { slot_id: string; start: string; end: string; resource_id?: string | null };
 
 export class HttpCalendarClient implements CalendarClient {
   readonly mode = "http" as const;
+  readonly supportsHoldExtension = true;
   constructor(
     private readonly baseUrl: string,
     private readonly apiKey: string,
@@ -71,7 +173,7 @@ export class HttpCalendarClient implements CalendarClient {
     });
   }
 
-  async getAvailability(q: { centre: string; service: string; from: string; to: string; language?: string }) {
+  async getAvailability(q: AvailabilityQuery) {
     const params = new URLSearchParams({ service: q.service, from: q.from, to: q.to });
     if (q.language) params.set("language", q.language);
     const { data } = await this.req<{ duration_minutes: number; days: { date: string; slots: ApiSlot[] }[] }>(
@@ -156,6 +258,7 @@ export class HttpCalendarClient implements CalendarClient {
  */
 export class MockCalendarClient implements CalendarClient {
   readonly mode = "mock" as const;
+  readonly supportsHoldExtension = true;
   static readonly TIMES: [number, number][] = [
     [9, 30],
     [10, 15],
@@ -181,7 +284,7 @@ export class MockCalendarClient implements CalendarClient {
     return { centre: m[1]!, start, end: new Date(start.getTime() + MockCalendarClient.DURATION_MIN * 60_000) };
   }
 
-  async getAvailability(q: { centre: string; service: string; from: string; to: string }) {
+  async getAvailability(q: AvailabilityQuery) {
     const db = await getDb();
     const now = this.now();
     const taken = await db
@@ -318,7 +421,7 @@ export class MockCalendarClient implements CalendarClient {
   }
 }
 
-export function bookingWindow(windowDays: number, now = new Date()): { from: string; to: string } {
-  const from = addDays(istDate(now), 1);
+export function bookingWindow(windowDays: number, now = new Date(), opts: { includeToday?: boolean } = {}): { from: string; to: string } {
+  const from = opts.includeToday ? istDate(now) : addDays(istDate(now), 1);
   return { from, to: addDays(from, windowDays - 1) };
 }

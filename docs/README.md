@@ -9,6 +9,7 @@ Planning documents for the Sri Sri Wellbeing paid consultation funnel: Next.js l
 | [03-calendar-integration.md](03-calendar-integration.md) | Our calendar team | Replacing Cal.com: availability, 15-min holds, bookings, reception moves, webhooks |
 | [04-deployment-vercel-aws.md](04-deployment-vercel-aws.md) | Our team / DevOps | Vercel demo, then AWS Mumbai: CloudFront, ECS Fargate, RDS, SQS, EventBridge, Secrets Manager, CloudWatch |
 | [05-channel-integrations.md](05-channel-integrations.md) | Our team | Razorpay, WhatsApp + AI bot tools API, ManyChat, Bolna, Meta Pixel / CAPI, WhatsApp templates |
+| [06-iam-partner-booking.md](06-iam-partner-booking.md) | Our team / ops | I AM Partner Booking API: how the funnel uses it, refund rule, keys, open questions for I AM, go-live |
 
 **Sources:**
 

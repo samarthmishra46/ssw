@@ -33,7 +33,8 @@ export default async function BookingPage({ params, searchParams }: { params: Pr
               <b>Booking reference:</b> {s.ref}
             </p>
             <p>
-              <b>Consultation:</b> Nadi Pariksha · {s.centre.name}
+              <b>Consultation:</b> Nadi Pariksha · {s.mode === "online" ? "Online video call" : s.centre.name}
+              {s.doctor ? ` · ${s.doctor}` : ""}
               {s.who !== "Myself" ? ` · for ${s.patientName}` : ""}
             </p>
             {s.when && (
@@ -42,7 +43,7 @@ export default async function BookingPage({ params, searchParams }: { params: Pr
               </p>
             )}
             <p>
-              <b>Where:</b> {centre.fullAddress}
+              <b>Where:</b> {s.mode === "online" ? "In the I AM app (sign in with the email you booked with)" : centre.fullAddress}
             </p>
             {!booked && (
               <p className="small">
@@ -52,13 +53,15 @@ export default async function BookingPage({ params, searchParams }: { params: Pr
             )}
             {booked && (
               <p className="small">
-                The ₹{s.feeInr} fee is non-refundable. To change your time, call reception on {s.centre.receptionPhone}.
+                The ₹{s.amountPaise / 100} fee is non-refundable. To change your time, call reception on {s.centre.receptionPhone}.
               </p>
             )}
             <p style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: 0 }}>
-              <a className="btn ghost" href={s.centre.mapUrl} target="_blank" rel="noopener">
-                Open in Maps
-              </a>
+              {s.mode !== "online" && (
+                <a className="btn ghost" href={s.centre.mapUrl} target="_blank" rel="noopener">
+                  Open in Maps
+                </a>
+              )}
               {booked && (
                 <a className="btn ghost" href={`/api/bookings/ics?token=${encodeURIComponent(t)}`}>
                   Add to calendar

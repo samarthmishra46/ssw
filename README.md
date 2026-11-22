@@ -15,10 +15,12 @@ With no environment variables set, everything runs locally:
 | --- | --- |
 | Database | PGlite (Postgres in-process) in `apps/web/.data/pglite`, migrated automatically |
 | Slixta | Mock client, logs every call (`[slixta:mock]`) |
-| Calendar | Mock calendar with the mock-up's slot grid; holds are real (15 min, no double booking) |
+| Calendar | Mock calendar with the mock-up's slot grid; holds are real (15 min, no double booking). Set `IAM_API_BASE_URL` + a centre key (`IAM_API_KEY_AHM`) to use the I AM Partner Booking API ([docs/06](docs/06-iam-partner-booking.md)) |
 | Razorpay | Test mode: the pay step shows "Payment succeeds / Payment fails" buttons |
 | WhatsApp | Messages are recorded in the `messages` table and logged |
 | Jobs and timers | A 15 s ticker inside the dev server runs due jobs |
+
+If DNS lookups for IPv6 addresses time out on your network (I AM calls hang ~15 s), start with `NODE_OPTIONS="--require ./scripts/ipv4-dns.cjs" npm run dev`.
 
 To use real partners, copy [.env.example](.env.example) to `apps/web/.env.local` and fill in the keys. Each partner switches from mock to live as soon as its credentials are present (`/api/health` shows which are live).
 
@@ -30,7 +32,7 @@ apps/worker     Queue worker for AWS (SQS + EventBridge) or a Postgres tick loop
 packages/core   Funnel rules: phone, stage ranking, lead rules, signed links, signatures, schedules, schemas
 packages/content Centres and programme copy (add a centre or campaign here)
 packages/db     Ops DB schema (Drizzle) and migrations
-packages/integrations  Slixta, calendar, Razorpay, Meta CAPI clients (live + mock)
+packages/integrations  Slixta, calendar (own app, I AM, mock), Razorpay, Meta CAPI clients
 packages/funnel Application services: booking, payments, recovery, reminders, webhooks, jobs
 docs/           Plan, Slixta and calendar API specs, deployment guide, channel integrations
 ```
@@ -47,6 +49,8 @@ docs/           Plan, Slixta and calendar API specs, deployment guide, channel i
 
 ```bash
 npm test               # rules + full funnel scenarios on an in-memory database (Vitest)
+IAM_API_KEY_AHM=iam_test_… npx vitest run packages/integrations/src/iam/iam.staging.test.ts   # live I AM staging checklist
+IAM_API_KEY_AHM=iam_test_… npx vitest run packages/funnel/src/iam.staging.test.ts          # one full booking on staging
 npm run test:e2e       # booking in Chrome, phone and desktop sizes (Playwright, uses installed Chrome)
 npm run typecheck
 npm run lint

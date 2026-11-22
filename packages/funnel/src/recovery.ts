@@ -75,7 +75,7 @@ export async function runRecoveryStep(ref: string, step: RecoveryStep): Promise<
     variables: {
       name: firstName,
       programme: programme?.label ?? "Nadi Pariksha",
-      fee: `₹${a.feeInr}`,
+      fee: `₹${(a.chargePaise ?? a.feeInr * 100) / 100}`,
       last_slot: a.slotStart ? formatWhen(a.slotStart) : "",
     },
     // URL button: https://<site>/<centre>/<programme>?t={{1}}

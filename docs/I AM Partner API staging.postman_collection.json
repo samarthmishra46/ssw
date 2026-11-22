@@ -1,0 +1,1544 @@
+{
+  "info": {
+    "name": "I AM Partner Booking API (staging)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Requests for the I AM Partner Booking API on staging, with automatic checks. 1) Set apiKey to your staging test key. 2) Run '1. Basics', then copy a doctor's id from 'Doctors, centre visits' into expertId. 3) Set slotDate, run '2. Dates and slots', and copy a free slot's start into slotStart (and an online one into onlineSlotStart). 4) Run the remaining folders in order. Each hold uses a fresh test phone number automatically. Set guestEmail to an inbox you can open: online bookings are joined in the I AM app with it. See the I AM Partner Booking API Guide for every endpoint and response."
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://staging-api.iamlife.guru/api/v1/partner"
+    },
+    {
+      "key": "apiKey",
+      "value": "PASTE_YOUR_STAGING_TEST_KEY"
+    },
+    {
+      "key": "expertId",
+      "value": ""
+    },
+    {
+      "key": "slotDate",
+      "value": "YYYY-MM-DD"
+    },
+    {
+      "key": "slotStart",
+      "value": ""
+    },
+    {
+      "key": "onlineSlotStart",
+      "value": ""
+    },
+    {
+      "key": "guestEmail",
+      "value": "your.inbox+iamtest@example.com"
+    },
+    {
+      "key": "paidAt",
+      "value": "2026-11-20T10:00:00+05:30"
+    },
+    {
+      "key": "phone",
+      "value": ""
+    },
+    {
+      "key": "holdId",
+      "value": ""
+    },
+    {
+      "key": "partnerBookingId",
+      "value": ""
+    },
+    {
+      "key": "bookingId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Basics",
+      "item": [
+        {
+          "name": "Centres",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/centres/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "centres"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Wrong key is refused",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/centres/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "centres"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.request.headers.upsert({key:'X-API-Key', value:'iam_test_wrong_key_wrong_key_wrong'});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 401', () => pm.response.to.have.status(401));",
+                  "pm.test('code INVALID_API_KEY', () => pm.expect(pm.response.json().code).to.eql('INVALID_API_KEY'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Doctors, centre visits",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/experts/?mode=offline",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experts"
+              ],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "offline"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('no zero-fee doctors', () => pm.response.json().data.results.forEach(e => pm.expect(e.fee_paisa).to.be.above(0)));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Doctors, online",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/experts/?mode=online",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experts"
+              ],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "online"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Dates and slots",
+      "item": [
+        {
+          "name": "Dates, centre visit",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/experts/{{expertId}}/dates/?mode=offline&duration=30",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experts",
+                "{{expertId}}",
+                "dates"
+              ],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "offline"
+                },
+                {
+                  "key": "duration",
+                  "value": "30"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Slots, centre visit",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/experts/{{expertId}}/slots/?mode=offline&date={{slotDate}}&duration=30",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experts",
+                "{{expertId}}",
+                "slots"
+              ],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "offline"
+                },
+                {
+                  "key": "date",
+                  "value": "{{slotDate}}"
+                },
+                {
+                  "key": "duration",
+                  "value": "30"
+                }
+              ]
+            },
+            "description": "Pick a slot with available: true and copy its start into the slotStart variable."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('times use +05:30', () => pm.response.json().data.slots.forEach(s => pm.expect(s.start).to.include('+05:30')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Slots, online",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/experts/{{expertId}}/slots/?mode=online&date={{slotDate}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experts",
+                "{{expertId}}",
+                "slots"
+              ],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "online"
+                },
+                {
+                  "key": "date",
+                  "value": "{{slotDate}}"
+                }
+              ]
+            },
+            "description": "Pick a slot with available: true and copy its start into onlineSlotStart."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Centre visit: hold, confirm, replay",
+      "item": [
+        {
+          "name": "Hold slot",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/holds/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "holds"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expert_id\": \"{{expertId}}\",\n  \"mode\": \"offline\",\n  \"start\": \"{{slotStart}}\",\n  \"duration_minutes\": 30,\n  \"phone\": \"{{phone}}\",\n  \"email\": \"{{guestEmail}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('phone', '+9199' + Math.floor(10000000 + Math.random()*89999999));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "if (pm.response.json().data && pm.response.json().data.hold_id) pm.collectionVariables.set('holdId', pm.response.json().data.hold_id);",
+                  "pm.test('expires_at has no microseconds', () => pm.expect(pm.response.json().data.expires_at).to.match(/T\\d\\d:\\d\\d:\\d\\d\\+05:30$/));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Same slot from another phone is refused",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/holds/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "holds"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expert_id\": \"{{expertId}}\",\n  \"mode\": \"offline\",\n  \"start\": \"{{slotStart}}\",\n  \"duration_minutes\": 30,\n  \"phone\": \"+919800000001\",\n  \"email\": \"{{guestEmail}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 409', () => pm.response.to.have.status(409));",
+                  "pm.test('code SLOT_UNAVAILABLE', () => pm.expect(pm.response.json().code).to.eql('SLOT_UNAVAILABLE'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Slot now shows as taken",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/experts/{{expertId}}/slots/?mode=offline&date={{slotDate}}&duration=30",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "experts",
+                "{{expertId}}",
+                "slots"
+              ],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "offline"
+                },
+                {
+                  "key": "date",
+                  "value": "{{slotDate}}"
+                },
+                {
+                  "key": "duration",
+                  "value": "30"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('held slot unavailable', () => { const s = pm.response.json().data.slots.find(x => x.start === pm.collectionVariables.get('slotStart')); pm.expect(s.available).to.eql(false); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirm",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/confirm/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "confirm"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"hold_id\": \"{{holdId}}\",\n  \"partner_booking_id\": \"{{partnerBookingId}}\",\n  \"visitor\": {\n    \"first_name\": \"QA\",\n    \"last_name\": \"Tester\",\n    \"phone\": \"{{phone}}\",\n    \"email\": \"{{guestEmail}}\",\n    \"age\": 30,\n    \"gender\": \"female\",\n    \"concern\": \"Dev test booking\"\n  },\n  \"payment\": {\n    \"iam_fee_paisa\": 10000,\n    \"discount_paisa\": 1000,\n    \"amount_paid_paisa\": 9000,\n    \"paid_at\": \"{{paidAt}}\",\n    \"reference\": \"pay_QA_{{partnerBookingId}}\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('partnerBookingId', 'QA-' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "pm.test('result confirmed', () => pm.expect(pm.response.json().data.result).to.eql('confirmed'));",
+                  "if (pm.response.json().data && pm.response.json().data.booking_id) pm.collectionVariables.set('bookingId', pm.response.json().data.booking_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirm again, same body (replay)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/confirm/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "confirm"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"hold_id\": \"{{holdId}}\",\n  \"partner_booking_id\": \"{{partnerBookingId}}\",\n  \"visitor\": {\n    \"first_name\": \"QA\",\n    \"last_name\": \"Tester\",\n    \"phone\": \"{{phone}}\",\n    \"email\": \"{{guestEmail}}\",\n    \"age\": 30,\n    \"gender\": \"female\",\n    \"concern\": \"Dev test booking\"\n  },\n  \"payment\": {\n    \"iam_fee_paisa\": 10000,\n    \"discount_paisa\": 1000,\n    \"amount_paid_paisa\": 9000,\n    \"paid_at\": \"{{paidAt}}\",\n    \"reference\": \"pay_QA_{{partnerBookingId}}\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('replayed', () => pm.expect(pm.response.json().data.replayed).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Status by our ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{bookingId}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "{{bookingId}}"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('confirmed', () => pm.expect(pm.response.json().data.status).to.eql('confirmed'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Status by SSW ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{partnerBookingId}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "{{partnerBookingId}}"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Releasing a confirmed booking is refused",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/holds/{{holdId}}/release/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "holds",
+                "{{holdId}}",
+                "release"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 409', () => pm.response.to.have.status(409));",
+                  "pm.test('code BOOKING_ALREADY_CONFIRMED', () => pm.expect(pm.response.json().code).to.eql('BOOKING_ALREADY_CONFIRMED'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Holds: release, replace, limits",
+      "item": [
+        {
+          "name": "Hold slot",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/holds/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "holds"
+              ]
+            },
+            "description": "Change slotStart to another free slot before running this folder.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expert_id\": \"{{expertId}}\",\n  \"mode\": \"offline\",\n  \"start\": \"{{slotStart}}\",\n  \"duration_minutes\": 30,\n  \"phone\": \"{{phone}}\",\n  \"email\": \"{{guestEmail}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('phone', '+9199' + Math.floor(10000000 + Math.random()*89999999));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "if (pm.response.json().data && pm.response.json().data.hold_id) pm.collectionVariables.set('holdId', pm.response.json().data.hold_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Release",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/holds/{{holdId}}/release/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "holds",
+                "{{holdId}}",
+                "release"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Release again (safe)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/holds/{{holdId}}/release/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "holds",
+                "{{holdId}}",
+                "release"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirm a released hold is refused",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/confirm/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "confirm"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"hold_id\": \"{{holdId}}\",\n  \"partner_booking_id\": \"{{partnerBookingId}}\",\n  \"visitor\": {\n    \"first_name\": \"QA\",\n    \"last_name\": \"Tester\",\n    \"phone\": \"{{phone}}\",\n    \"email\": \"{{guestEmail}}\",\n    \"age\": 30,\n    \"gender\": \"female\",\n    \"concern\": \"Dev test booking\"\n  },\n  \"payment\": {\n    \"iam_fee_paisa\": 10000,\n    \"discount_paisa\": 1000,\n    \"amount_paid_paisa\": 9000,\n    \"paid_at\": \"{{paidAt}}\",\n    \"reference\": \"pay_QA_{{partnerBookingId}}\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('partnerBookingId', 'QA-' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 409', () => pm.response.to.have.status(409));",
+                  "pm.test('code HOLD_EXPIRED', () => pm.expect(pm.response.json().code).to.eql('HOLD_EXPIRED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Invalid phone",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/holds/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "holds"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expert_id\": \"{{expertId}}\",\n  \"mode\": \"offline\",\n  \"start\": \"{{slotStart}}\",\n  \"duration_minutes\": 30,\n  \"phone\": \"12\",\n  \"email\": \"{{guestEmail}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 400', () => pm.response.to.have.status(400));",
+                  "pm.test('code INVALID_PHONE', () => pm.expect(pm.response.json().code).to.eql('INVALID_PHONE'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Online hold without email",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/holds/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "holds"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expert_id\": \"{{expertId}}\",\n  \"mode\": \"online\",\n  \"start\": \"{{onlineSlotStart}}\",\n  \"phone\": \"{{phone}}\",\n  \"email\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('phone', '+9199' + Math.floor(10000000 + Math.random()*89999999));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 400', () => pm.response.to.have.status(400));",
+                  "pm.test('code EMAIL_REQUIRED_FOR_ONLINE', () => pm.expect(pm.response.json().code).to.eql('EMAIL_REQUIRED_FOR_ONLINE'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Optional fields sent as null are accepted",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/holds/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "holds"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expert_id\": \"{{expertId}}\",\n  \"mode\": \"offline\",\n  \"start\": \"{{slotStart}}\",\n  \"duration_minutes\": 30,\n  \"phone\": \"{{phone}}\",\n  \"email\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('phone', '+9199' + Math.floor(10000000 + Math.random()*89999999));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "if (pm.response.json().data && pm.response.json().data.hold_id) pm.collectionVariables.set('holdId', pm.response.json().data.hold_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Release it",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/holds/{{holdId}}/release/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "holds",
+                "{{holdId}}",
+                "release"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. Confirm errors",
+      "item": [
+        {
+          "name": "Hold slot",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/holds/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "holds"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expert_id\": \"{{expertId}}\",\n  \"mode\": \"offline\",\n  \"start\": \"{{slotStart}}\",\n  \"duration_minutes\": 30,\n  \"phone\": \"{{phone}}\",\n  \"email\": \"{{guestEmail}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('phone', '+9199' + Math.floor(10000000 + Math.random()*89999999));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "if (pm.response.json().data && pm.response.json().data.hold_id) pm.collectionVariables.set('holdId', pm.response.json().data.hold_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Phone mismatch",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/confirm/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "confirm"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"hold_id\": \"{{holdId}}\",\n  \"partner_booking_id\": \"{{partnerBookingId}}\",\n  \"visitor\": {\n    \"first_name\": \"QA\",\n    \"last_name\": \"Tester\",\n    \"phone\": \"+919800000002\",\n    \"email\": \"{{guestEmail}}\",\n    \"age\": 30,\n    \"gender\": \"female\",\n    \"concern\": \"Dev test booking\"\n  },\n  \"payment\": {\n    \"iam_fee_paisa\": 10000,\n    \"discount_paisa\": 1000,\n    \"amount_paid_paisa\": 9000,\n    \"paid_at\": \"{{paidAt}}\",\n    \"reference\": \"pay_QA_{{partnerBookingId}}\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('partnerBookingId', 'QA-' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 400', () => pm.response.to.have.status(400));",
+                  "pm.test('code PHONE_MISMATCH', () => pm.expect(pm.response.json().code).to.eql('PHONE_MISMATCH'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Release it",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/holds/{{holdId}}/release/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "holds",
+                "{{holdId}}",
+                "release"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "6. Online consultation",
+      "item": [
+        {
+          "name": "Hold online slot",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/holds/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "holds"
+              ]
+            },
+            "description": "Use a guestEmail you can open: you will sign in to the I AM app with it.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expert_id\": \"{{expertId}}\",\n  \"mode\": \"online\",\n  \"start\": \"{{onlineSlotStart}}\",\n  \"phone\": \"{{phone}}\",\n  \"email\": \"{{guestEmail}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('phone', '+9199' + Math.floor(10000000 + Math.random()*89999999));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "if (pm.response.json().data && pm.response.json().data.hold_id) pm.collectionVariables.set('holdId', pm.response.json().data.hold_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirm with wrong email is refused",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/confirm/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "confirm"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"hold_id\": \"{{holdId}}\",\n  \"partner_booking_id\": \"{{partnerBookingId}}\",\n  \"visitor\": {\n    \"first_name\": \"QA\",\n    \"last_name\": \"Tester\",\n    \"phone\": \"{{phone}}\",\n    \"email\": \"someone.else@example.com\",\n    \"age\": 30,\n    \"gender\": \"female\",\n    \"concern\": \"Dev test booking\"\n  },\n  \"payment\": {\n    \"iam_fee_paisa\": 10000,\n    \"discount_paisa\": 1000,\n    \"amount_paid_paisa\": 9000,\n    \"paid_at\": \"{{paidAt}}\",\n    \"reference\": \"pay_QA_{{partnerBookingId}}\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('partnerBookingId', 'QA-' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 400', () => pm.response.to.have.status(400));",
+                  "pm.test('code EMAIL_MISMATCH', () => pm.expect(pm.response.json().code).to.eql('EMAIL_MISMATCH'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirm",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/confirm/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "confirm"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"hold_id\": \"{{holdId}}\",\n  \"partner_booking_id\": \"{{partnerBookingId}}\",\n  \"visitor\": {\n    \"first_name\": \"QA\",\n    \"last_name\": \"Tester\",\n    \"phone\": \"{{phone}}\",\n    \"email\": \"{{guestEmail}}\",\n    \"age\": 30,\n    \"gender\": \"female\",\n    \"concern\": \"Dev test booking\"\n  },\n  \"payment\": {\n    \"iam_fee_paisa\": 10000,\n    \"discount_paisa\": 1000,\n    \"amount_paid_paisa\": 9000,\n    \"paid_at\": \"{{paidAt}}\",\n    \"reference\": \"pay_QA_{{partnerBookingId}}\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('partnerBookingId', 'QA-' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "pm.test('result confirmed', () => pm.expect(pm.response.json().data.result).to.eql('confirmed'));",
+                  "if (pm.response.json().data && pm.response.json().data.booking_id) pm.collectionVariables.set('bookingId', pm.response.json().data.booking_id);",
+                  "pm.test('app session created', () => pm.expect(pm.response.json().data.session_booking_id).to.be.a('string'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{bookingId}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "{{bookingId}}"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -10,6 +10,7 @@ export type PaymentIssueType =
   | "webhook_mismatch"
   | "unknown_order"
   | "paid_slot_gone"
+  | "paid_not_booked"
   | "paid_booking_missing"
   | "charged_twice"
   | "customer_complaint"
@@ -19,6 +20,8 @@ const CONTEXT: Record<PaymentIssueType, string> = {
   webhook_mismatch: "Razorpay payment did not match the order (amount, order ID or lead ID). Check before confirming anything.",
   unknown_order: "Razorpay reported a payment for an order we do not know.",
   paid_slot_gone: "Customer paid but the slot was taken after the hold ended. Offer the nearest free slots; technical reversal only if none suits (operations owner approves).",
+  paid_not_booked:
+    "Customer paid but I AM did not make the booking (definite answer, see the issue detail for the code). Refund the full amount through Razorpay, tell the guest, and offer to book a new time. If ourBug is true, also send the details to engineering.",
   paid_booking_missing: "Customer paid but no booking exists. Book the slot if still free and send the receipt.",
   charged_twice: "Customer appears to have paid twice. Reverse the extra payment through Razorpay (operations owner approves).",
   customer_complaint: "Customer reported a payment problem.",

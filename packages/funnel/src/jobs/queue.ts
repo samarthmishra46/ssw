@@ -70,7 +70,15 @@ export type Handler = (payload: Record<string, unknown>, job: JobRow) => Promise
 
 const LOCK_MS = 5 * 60 * 1000;
 
-function backoffMs(attempt: number): number {
+/**
+ * I AM guide 7.3: an unknown booking confirm is retried quickly at first, then every few minutes
+ * until the calendar gives a definite answer (the job is enqueued with a large maxAttempts).
+ */
+const CONFIRM_BACKOFF_MS = [5_000, 15_000, 60_000];
+const CONFIRM_STEADY_MS = 5 * 60_000;
+
+function backoffMs(attempt: number, type?: string): number {
+  if (type === "booking.confirm") return CONFIRM_BACKOFF_MS[attempt - 1] ?? CONFIRM_STEADY_MS;
   return Math.min(60 * 60 * 1000, 30_000 * 2 ** Math.max(0, attempt - 1));
 }
 
@@ -126,7 +134,7 @@ export async function runClaimed(job: JobRow, handlers: Record<string, Handler>)
   } catch (err) {
     const message = (err as Error).message ?? String(err);
     if (isRetryable(err) && job.attempts < job.maxAttempts) {
-      const runAt = new Date(Date.now() + backoffMs(job.attempts));
+      const runAt = new Date(Date.now() + backoffMs(job.attempts, job.type));
       await db.update(jobs).set({ status: "pending", runAt, lockedUntil: null, lastError: message }).where(eq(jobs.id, job.id));
       if (trigger) await trigger({ id: job.id, runAt }).catch(() => {});
       return "retry";

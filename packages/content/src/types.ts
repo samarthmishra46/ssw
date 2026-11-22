@@ -23,6 +23,27 @@ export type Centre = {
   calendarService: string;
   /** Booking window shown on the landing page. */
   bookingWindowDays: number;
+  /** I AM Partner Booking API settings (docs/06), used when the calendar runs in I AM mode. */
+  iam?: IamCentreSettings;
+};
+
+/**
+ * Doctors, fees, durations, languages and modes all come from the I AM API. These settings only
+ * narrow what this landing page offers.
+ */
+export type IamCentreSettings = {
+  /**
+   * I AM centre code. Optional: when unset we use the centre the key can see (GET /centres/),
+   * matched by city if it sees several. Env override: IAM_CENTRE_<CODE>, e.g. IAM_CENTRE_AHM.
+   */
+  centreCode?: string;
+  /** Modes this page offers. "offline" = centre visit, "online" = video call in the I AM app (needs email). */
+  modes: ("offline" | "online")[];
+  expertType: "doctor" | "coach";
+  /** Preferred centre-visit length, used when the doctor offers it; otherwise the doctor's shortest. */
+  preferredDurationMinutes?: number;
+  /** Limit to these I AM expert IDs. Empty = every listed doctor. Env override: IAM_EXPERT_IDS_<CODE> (comma-separated). */
+  expertIds?: string[];
 };
 
 export type Practitioner = {

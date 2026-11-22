@@ -25,7 +25,7 @@ Check Razorpay's minimum `expire_by` for Payment Links. If it is above 15 minute
 Every webhook must pass all four checks before anything changes:
 
 1. `X-Razorpay-Signature` = HMAC-SHA256 of the raw body with the webhook secret
-2. Amount = the centre's fee (₹500 = 50000 paise) and currency INR
+2. Amount = the fee locked at hold (I AM: the chosen doctor's fee; mock calendar: the centre's fee), currency INR
 3. Order ID / payment link ID matches the appointment we stored
 4. `notes.lead_id` matches the appointment's contact
 
@@ -118,11 +118,13 @@ Errors: `403 consent_required`, `409 slot_unavailable`, `423 contact_paused` (hu
 | Template | Category | When | Buttons |
 | --- | --- | --- | --- |
 | `booking_confirmed` | Utility | After verified payment: receipt, date/time, address, map, checklist, no-refund note, reception number | Open map |
+| `booking_confirmed_online` | Utility | After an I AM **online** consultation is confirmed: doctor, date, time, and how to join in the I AM app with the booking email (docs/06, section 8). Variables: `name`, `doctor`, `date`, `time`, `email`, `ref`, `amount` | — |
 | `resume_payment` | Utility | Recovery, immediately | Resume Payment (personal link) |
 | `consult_explainer` | Marketing | Recovery +2 h | Book now |
 | `trust_faq` | Marketing | Recovery +24 h | Book now |
 | `final_reminder` | Marketing | Recovery +48 h | Resume Payment, Talk to an Advisor |
 | `reminder_24h` | Utility | 24 h before | Confirm, Call reception |
+| `reminder_online` | Utility | 24 h before an I AM **online** consultation: doctor, date, time, join from the I AM app. Variables: `name`, `doctor`, `when`, `time`, `reception` | — |
 | `visit_day` | Utility | Morning of the visit: map and arrival instructions | Open map |
 | `call_missed` | Utility | AI call not answered | Call reception |
 | `no_show_kind` | Utility | After a no-show | Call reception |
@@ -198,7 +200,7 @@ Every outcome, summary and recording link is written to the contact in Slixta as
 | `PageView` | Yes | No | Landing page |
 | `Lead` | Yes | Yes | Step 1 saved |
 | `InitiateCheckout` | Yes | Yes | Razorpay opened |
-| `Purchase` | No | Yes | Verified payment webhook (₹500) |
+| `Purchase` | No | Yes | Verified payment webhook (amount paid) |
 
 - Browser and server events share an `event_id` so Meta de-duplicates them.
 - Server events send hashed phone, `fbc` / `fbp` cookies, client IP and user agent.

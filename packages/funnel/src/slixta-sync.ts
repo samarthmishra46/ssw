@@ -128,7 +128,7 @@ export async function syncAppointment(appointmentId: string): Promise<void> {
     slotStart: a.slotStart?.toISOString() ?? null,
     slotEnd: a.slotEnd?.toISOString() ?? null,
     status: a.status,
-    amountInr: a.feeInr,
+    amountInr: (a.chargePaise ?? a.feeInr * 100) / 100,
     channel: a.channel,
   };
   if (!a.slixtaId) {

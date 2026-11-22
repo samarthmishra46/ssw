@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 /** Hides while the booking section is on screen, so it never covers the ticks or the pay button. */
-export function StickyBar({ fee }: { fee: number }) {
+export function StickyBar() {
   const [off, setOff] = useState(false);
   useEffect(() => {
     const target = document.getElementById("book");
@@ -15,7 +15,7 @@ export function StickyBar({ fee }: { fee: number }) {
   return (
     <div className={`bar${off ? " off" : ""}`}>
       <div className="wrap">
-        <span>Nadi Pariksha consultation · ₹{fee}</span>
+        <span>Nadi Pariksha consultation</span>
         <a href="#book">Book now</a>
       </div>
     </div>

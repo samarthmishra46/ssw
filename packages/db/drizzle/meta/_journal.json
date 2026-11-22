@@ -8,6 +8,13 @@
       "when": 1794560999848,
       "tag": "0000_light_silver_fox",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1795253380793,
+      "tag": "0001_yielding_forge",
+      "breakpoints": true
     }
   ]
 }

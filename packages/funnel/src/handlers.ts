@@ -5,6 +5,7 @@ import { integrations } from "@ssw/integrations";
 import { onPaymentTimeout, retryBookingConfirm } from "./booking";
 import type { Handler } from "./jobs/queue";
 import { queueTemplate, sendQueuedMessage } from "./notifications";
+import { checkBookingBeforeReminder } from "./calendar-sync";
 import { runRecoveryStep } from "./recovery";
 import { pushActivity, pushSegment, pushTask, syncAppointment, syncConsent, syncContact, type ActivityPayload, type TaskPayload } from "./slixta-sync";
 import { formatTime, formatWhen } from "@ssw/core";
@@ -37,7 +38,7 @@ export const handlers: Record<string, Handler> = {
     });
   },
 
-  "booking.confirm": async (p) => retryBookingConfirm(String(p.ref)),
+  "booking.confirm": async (p, job) => retryBookingConfirm(String(p.ref), job.attempts),
   "payment.timeout": async (p) => onPaymentTimeout(String(p.ref), String(p.reservationId)),
   "recovery.step": async (p) => runRecoveryStep(String(p.ref), p.step as RecoveryStep),
 
@@ -46,9 +47,28 @@ export const handlers: Record<string, Handler> = {
     const [a] = await db.select().from(appointments).where(eq(appointments.ref, String(p.ref)));
     if (!a?.slotStart || !PAID_STATUSES.has(a.status as AppointmentStatus) || ["no_show", "visited", "payment_issue"].includes(a.status)) return;
     if (a.slotStart.toISOString() !== String(p.slotStart)) return; // rescheduled since
+    if ((await checkBookingBeforeReminder(a)) === "skip") return; // I AM guide 7.4
     const centre = getCentre(a.centre);
     if (!centre) return;
     const kind = p.kind === "visit_day" ? "visit_day" : "reminder_24h";
+    if (a.consultMode === "online") {
+      // Video call in the I AM app: no address or map. One reminder, 24 h before.
+      if (kind === "visit_day") return;
+      await queueTemplate({
+        contactId: a.contactId,
+        appointmentId: a.id,
+        template: "reminder_online",
+        variables: {
+          name: a.bookerName.split(" ")[0] ?? "",
+          doctor: a.resourceName ?? "your doctor",
+          when: formatWhen(a.slotStart),
+          time: formatTime(a.slotStart),
+          reception: centre.receptionPhone,
+        },
+        clientRef: `reminder_online-${a.ref}-${a.slotStart.getTime()}`,
+      });
+      return;
+    }
     await queueTemplate({
       contactId: a.contactId,
       appointmentId: a.id,

@@ -40,7 +40,7 @@ export function Hero({ centre, programme }: { centre: Centre; programme: Program
           <span className="tag">{programme.label}</span>
           <h1>{programme.head}</h1>
           <p className="lead">{programme.sub}</p>
-          <p className="fee">Nadi Pariksha consultation: ₹{centre.feeInr}</p>
+          <p className="fee">Nadi Pariksha consultation with our Ayurveda doctors</p>
           <div className="cta">
             <a className="btn" href="#book">
               Book my Nadi Pariksha

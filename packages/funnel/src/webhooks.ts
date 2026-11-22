@@ -2,10 +2,11 @@ import { isStage, normalizeIndianPhone, verifyRazorpayWebhook, verifyTimestamped
 import { getCentre } from "@ssw/content";
 import { and, appointments, contacts, desc, eq, getDb, inArray, messages, or, webhookEvents } from "@ssw/db";
 import { handlePaymentCaptured, handlePaymentFailed, onPaymentTimeout, sendConfirmation } from "./booking";
+import { applyBookingCancelled, applyBookingMoved } from "./calendar-sync";
 import { FunnelError } from "./config";
 import { logEvent } from "./events";
 import { ingestEntryEvent, setStage } from "./leads";
-import { cancelReminders, queueTemplate, scheduleReminders } from "./notifications";
+import { queueTemplate, scheduleReminders } from "./notifications";
 import { openPaymentIssue } from "./payment-issues";
 import { queueSlixta } from "./slixta-sync";
 
@@ -120,39 +121,13 @@ export async function handleCalendarWebhook(rawBody: string, signature: string |
       case "booking.rescheduled": {
         if (!a) return;
         const to = evt.data.to ?? { start: evt.data.start, end: evt.data.end };
-        const newCentre = to.centre ?? a.centre;
-        await db
-          .update(appointments)
-          .set({
-            status: "rescheduled",
-            centre: newCentre,
-            slotStart: to.start ? new Date(to.start) : a.slotStart,
-            slotEnd: to.end ? new Date(to.end) : a.slotEnd,
-            resourceId: to.resource_id ?? a.resourceId,
-          })
-          .where(eq(appointments.id, a.id));
-        if (newCentre !== a.centre) {
-          const [c] = await db.select({ phone: contacts.phone }).from(contacts).where(eq(contacts.id, a.contactId));
-          if (c) {
-            await ingestEntryEvent({ phone: c.phone, centre: newCentre, source: "calendar", proposedStage: "confirmed_paid", isBooking: true, eventType: "booking_moved" });
-          }
-        }
-        await logEvent({ type: "booking_rescheduled", source: "calendar", contactId: a.contactId, appointmentId: a.id, data: { to } });
-        await queueSlixta.appointment(a.id);
-        await queueSlixta.activity({ contactId: a.contactId, type: "rescheduled", key: `cal-${evt.id}`, appointmentRef: a.ref, data: { to } });
-        // Board section 7: restart reminders (and AI calls in phase 2).
-        await cancelReminders(a.ref);
-        await scheduleReminders(a.id);
+        await applyBookingMoved(a, { start: to.start, end: to.end, centre: to.centre, resourceId: to.resource_id }, "calendar", `cal-${evt.id}`);
         return;
       }
 
       case "booking.cancelled":
         if (!a) return;
-        await db.update(appointments).set({ status: "cancelled" }).where(eq(appointments.id, a.id));
-        await cancelReminders(a.ref);
-        await setStage(a.contactId, "cancelled_no_show", "calendar", "booking cancelled");
-        await logEvent({ type: "booking_cancelled", source: "calendar", contactId: a.contactId, appointmentId: a.id });
-        await queueSlixta.appointment(a.id);
+        await applyBookingCancelled(a, "calendar");
         return;
 
       case "booking.attended":
