@@ -11,6 +11,7 @@ export const centres: Record<string, Centre> = {
     slug: "ahmedabad",
     code: "AHM",
     name: "Sri Sri Wellbeing Ahmedabad",
+    city: "Ahmedabad",
     shortAddress: "Shivranjani Cross Road, Ambawadi",
     fullAddress:
       "Sri Sri Wellbeing Centre, Shivranjani Cross Road, Near Pintu Garment, Ambawadi, Ahmedabad, Gujarat 380015",
@@ -90,6 +91,9 @@ export const programmes: Record<string, Programme> = {
     slug: "joints",
     concern: "joints",
     label: "Knees · Back · Joints",
+    navLabel: "Joints & back",
+    summary:
+      "Discomfort in your knees, back or joints? The doctor listens to how you sit, walk and work, reads your pulse, and explains a plan in plain words.",
     metaTitle: "Nadi Pariksha for knees, back and joints · Sri Sri Wellbeing Ahmedabad",
     metaDescription:
       "Sit with our Ayurveda doctors about the discomfort in your knees, back or joints. Book a Nadi Pariksha consultation, Ambawadi, Ahmedabad.",
@@ -153,6 +157,9 @@ export const programmes: Record<string, Programme> = {
     slug: "sleep",
     concern: "sleep",
     label: "Sleep · Stress · Relaxation",
+    navLabel: "Sleep & stress",
+    summary:
+      "Body tired, mind still running? A look at your food, routine and stress, with relaxation therapy if the doctor feels it suits you.",
     metaTitle: "Nadi Pariksha for sleep and stress · Sri Sri Wellbeing Ahmedabad",
     metaDescription:
       "Body tired, mind still running? An unhurried consultation with our Ayurveda doctors and a routine that fits your evenings. Book online, Ambawadi, Ahmedabad.",
@@ -215,6 +222,8 @@ export const programmes: Record<string, Programme> = {
     slug: "women",
     concern: "women",
     label: "Women's wellness",
+    navLabel: "Women's wellness",
+    summary: "Your food, sleep, stress and routine, looked at together in one private, unhurried consultation with our Ayurveda doctors.",
     metaTitle: "Women's wellness consultation · Sri Sri Wellbeing Ahmedabad",
     metaDescription:
       "One unhurried conversation with our Ayurveda doctors about your food, sleep, stress and routine. Private Nadi Pariksha consultation, Ahmedabad.",
@@ -286,6 +295,38 @@ export const centreProgrammes: Record<string, string[]> = {
 
 export function getProgramme(slug: string): Programme | undefined {
   return programmes[slug];
+}
+
+/** Programmes offered at a centre, in display order. */
+export function programmesFor(centreSlug: string): Programme[] {
+  return (centreProgrammes[centreSlug] ?? []).map((slug) => programmes[slug]).filter((p): p is Programme => !!p);
+}
+
+/** Where unknown addresses are sent until other cities have pages. */
+export const DEFAULT_CENTRE = "ahmedabad";
+
+/** Copy for a centre's own page (/ahmedabad), which links to its programme pages. */
+export const centreHub = {
+  tag: "Ayurveda consultations",
+  head: (city: string) => `Ayurveda doctors who listen first, in ${city}.`,
+  sub: "Choose what's on your mind. Every consultation starts with a conversation and a Nadi Pariksha (pulse reading), and ends with a plan explained in plain words.",
+  concernsHeading: "What would you like to talk about?",
+  steps: [
+    ["We listen first.", "The doctor asks about your concern, your day and your routine."],
+    ["Nadi Pariksha.", "A traditional pulse reading, at the heart of an Ayurvedic assessment."],
+    ["Your plan, explained.", "What the doctor sees, in plain words, and what to do next."],
+    ["You decide.", "No pressure to start anything that day."],
+  ] as [string, string][],
+  why: [
+    "A legacy of 30+ years in Ayurveda",
+    "Every plan starts with a doctor's assessment",
+    "Choose your doctor and see their fee before you pay",
+    "Consult in Gujarati, Hindi or English",
+  ],
+};
+
+export function allCentres(): { centre: string }[] {
+  return Object.keys(centreProgrammes).map((centre) => ({ centre }));
 }
 
 export function allLandingPages(): { centre: string; programme: string }[] {

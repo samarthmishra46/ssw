@@ -1,9 +1,21 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { allLandingPages, centreProgrammes, getCentre, getProgramme } from "@ssw/content";
+import { allLandingPages, centreProgrammes, commonFaq, getCentre, getProgramme, programmesFor } from "@ssw/content";
 import { BookingFlow } from "@/components/booking/BookingFlow";
 import { Rich } from "@/components/landing/Rich";
-import { Aside, Faq, Hero, Journey, Moment, People, SiteFooter, SiteHeader, Why } from "@/components/landing/Sections";
+import {
+  Aside,
+  ConcernCards,
+  ConcernNav,
+  Faq,
+  Hero,
+  Journey,
+  Moment,
+  People,
+  SiteFooter,
+  SiteHeader,
+  Why,
+} from "@/components/landing/Sections";
 import { StickyBar } from "@/components/landing/StickyBar";
 
 // Pre-rendered at build time and served from the CDN; only the booking card hydrates.
@@ -37,10 +49,12 @@ export default async function LandingPage({ params }: { params: Promise<Params> 
   const r = resolve(await params);
   if (!r) notFound();
   const { centre, programme } = r;
+  const all = programmesFor(centre.slug);
 
   return (
     <>
       <SiteHeader centre={centre} programme={programme} />
+      <ConcernNav centre={centre} programmes={all} current={programme.slug} />
       <main>
         <Hero centre={centre} programme={programme} />
 
@@ -68,11 +82,17 @@ export default async function LandingPage({ params }: { params: Promise<Params> 
         </section>
 
         <Moment programme={programme} />
-        <Journey programme={programme} />
+        <Journey steps={programme.steps} />
         <Aside programme={programme} />
         <People programme={programme} />
-        <Why programme={programme} />
-        <Faq programme={programme} />
+        <Why items={programme.why} />
+        <Faq items={[...programme.faq, ...commonFaq]} />
+        <ConcernCards
+          centre={centre}
+          programmes={all.filter((p) => p.slug !== programme.slug)}
+          heading={`Also at ${centre.name}`}
+          intro="The same Nadi Pariksha consultation, for a different concern."
+        />
       </main>
       <SiteFooter centre={centre} programme={programme} />
       <StickyBar />

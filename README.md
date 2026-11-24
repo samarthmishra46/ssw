@@ -6,7 +6,7 @@ Next.js landing pages and booking flow for Sri Sri Wellbeing's ₹500 Nadi Parik
 
 ```bash
 npm install
-npm run dev            # http://localhost:3000/ahmedabad/joints
+npm run dev            # http://localhost:3000/ahmedabad
 ```
 
 With no environment variables set, everything runs locally:
@@ -39,7 +39,9 @@ docs/           Plan, Slixta and calendar API specs, deployment guide, channel i
 
 ## Pages and endpoints
 
-- Landing pages: `/ahmedabad/joints`, `/ahmedabad/sleep`, `/ahmedabad/women` (UTM parameters are captured automatically)
+- Centre page: `/ahmedabad`, with a card for each consultation
+- Landing pages: `/ahmedabad/joints`, `/ahmedabad/sleep`, `/ahmedabad/women` (UTM parameters are captured automatically). Each links to the other two
+- Any other address redirects to `/ahmedabad`, keeping its query string (`apps/web/proxy.ts`). Add a city to `centres` and `centreProgrammes` in `packages/content` to give it pages
 - Booking status (linked from the WhatsApp receipt): `/booking/<ref>?t=<token>`
 - Booking API: `POST /api/leads`, `GET /api/slots`, `POST /api/holds`, `POST /api/holds/release`, `POST /api/payments/order`, `POST /api/payments/verify`, `GET /api/bookings/status`, `GET /api/bookings/ics`
 - Webhooks: `POST /api/webhooks/razorpay`, `/api/webhooks/calendar`

@@ -8,6 +8,8 @@ export type Centre = {
   /** Three letters, used in booking references (AHM-123456). */
   code: string;
   name: string;
+  /** City shown on the centre page, e.g. "Ahmedabad". */
+  city: string;
   shortAddress: string;
   fullAddress: string;
   hours: string;
@@ -59,6 +61,10 @@ export type Programme = {
   slug: string;
   concern: string;
   label: string;
+  /** Short name for the page switcher, e.g. "Joints & back". */
+  navLabel: string;
+  /** One or two sentences for the centre page and the "other consultations" cards. */
+  summary: string;
   metaTitle: string;
   metaDescription: string;
   head: string;
