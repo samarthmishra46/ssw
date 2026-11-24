@@ -17,8 +17,6 @@ export type Integrations = {
   calendar: CalendarClient;
   payments: PaymentsClient;
   meta: MetaClient;
-  /** "slixta": send WhatsApp through Slixta. "log": record messages only. */
-  whatsappMode: "slixta" | "log";
 };
 
 let cached: Integrations | null = null;
@@ -30,9 +28,21 @@ export function integrations(): Integrations {
   if (cached) return cached;
   const env = process.env;
 
-  const slixtaMode = env.SLIXTA_MODE ?? (env.SLIXTA_API_URL ? "http" : "mock");
+  // Live only when everything Slixta needs is set (SLIXTA_MODE=http forces it and fails on a gap).
+  const slixtaReady = ["SLIXTA_SUBMIT_API_KEY", "SLIXTA_INTERACTIONS_API_KEY", "SLIXTA_ORG_ID", "SLIXTA_DATA_SOURCE_ID"].every((k) => env[k]);
+  const slixtaMode = env.SLIXTA_MODE ?? (slixtaReady ? "http" : "mock");
   const slixta =
-    slixtaMode === "http" ? new HttpSlixtaClient(required("SLIXTA_API_URL"), required("SLIXTA_API_KEY")) : new MockSlixtaClient();
+    slixtaMode === "http"
+      ? new HttpSlixtaClient({
+          submitApiKey: required("SLIXTA_SUBMIT_API_KEY"),
+          interactionsApiKey: required("SLIXTA_INTERACTIONS_API_KEY"),
+          orgId: required("SLIXTA_ORG_ID"),
+          dataSourceId: required("SLIXTA_DATA_SOURCE_ID"),
+          agentEmail: env.SLIXTA_AGENT_EMAIL || null,
+          submitUrl: env.SLIXTA_SUBMIT_URL || undefined,
+          interactionsUrl: env.SLIXTA_INTERACTIONS_URL || undefined,
+        })
+      : new MockSlixtaClient();
 
   const calendarMode =
     env.CALENDAR_MODE ??
@@ -51,9 +61,7 @@ export function integrations(): Integrations {
 
   const meta = env.META_PIXEL_ID && env.META_CAPI_TOKEN ? new MetaCapiClient(env.META_PIXEL_ID, env.META_CAPI_TOKEN) : new NoopMetaClient();
 
-  const whatsappMode = env.WHATSAPP_MODE === "slixta" && slixta.mode === "http" ? "slixta" : "log";
-
-  cached = { slixta, calendar, payments, meta, whatsappMode };
+  cached = { slixta, calendar, payments, meta };
   return cached;
 }
 

@@ -3,10 +3,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 process.env.DATABASE_URL = "pglite:memory";
 process.env.LINK_SIGNING_SECRET = "test-secret";
 
-import { and, appointments, closeDb, eq, getDb, iamBookings, jobs, like, lte, messages, paymentIssues } from "@ssw/db";
+import { and, appointments, closeDb, contacts, eq, getDb, iamBookings, jobs, lte, paymentIssues } from "@ssw/db";
 import {
   IamCalendarClient,
   IamKeyring,
+  interactionBody,
   MockPaymentsClient,
   MockSlixtaClient,
   NoopMetaClient,
@@ -20,7 +21,6 @@ import {
   getBookingStatus,
   getDoctors,
   getSlots,
-  handlers,
   holdSlot,
   onPaymentTimeout,
   releaseSlot,
@@ -34,6 +34,7 @@ import {
  */
 
 let fake: FakeIam;
+let slixta: MockSlixtaClient;
 let now = Date.now();
 const DOC_ASHA = "a2f4c9c1-7d7b-4a55-8a5e-3b1d2e9f7c10";
 const DOC_VIKRAM = "b3e5d0d2-8e8c-4b66-9b6f-4c2e3f0a8d21";
@@ -55,7 +56,8 @@ function useIam(modes: ("offline" | "online")[] = ["offline"]) {
     env: {},
     now: () => new Date(now),
   });
-  setIntegrations({ slixta: new MockSlixtaClient(), calendar, payments: new MockPaymentsClient(), meta: new NoopMetaClient(), whatsappMode: "log" });
+  slixta = new MockSlixtaClient();
+  setIntegrations({ slixta, calendar, payments: new MockPaymentsClient(), meta: new NoopMetaClient() });
 }
 
 let phoneSeq = 0;
@@ -104,10 +106,10 @@ async function issues(ref: string) {
   return db.select().from(paymentIssues).where(eq(paymentIssues.appointmentId, a!.id));
 }
 
-async function templates(ref: string) {
+/** Whether Slixta was (or will be) told about this booking (APPOINTMENT BOOKED). */
+async function bookedSent(ref: string) {
   const db = await getDb();
-  const [a] = await db.select().from(appointments).where(eq(appointments.ref, ref));
-  return (await db.select().from(messages).where(eq(messages.appointmentId, a!.id))).map((m) => m.template);
+  return (await db.select().from(jobs).where(eq(jobs.dedupeKey, `slixta-booked:${ref}`))).length > 0;
 }
 
 beforeAll(async () => {
@@ -223,7 +225,7 @@ describe("I AM: confirm after payment", () => {
     const [a] = await db.select().from(appointments).where(eq(appointments.ref, ref));
     expect(a!.calendarBookingId).toBe(r.iamBookingId);
     expect(fake.bookings.get(r.iamBookingId!)?.status).toBe("confirmed");
-    expect(await templates(ref)).toContain("booking_confirmed");
+    expect(await bookedSent(ref)).toBe(true);
   });
 
   it("timeout on confirm: keeps the payment, sends nothing, retries the same bytes, books once, never refunds (checklist 13, 20)", async () => {
@@ -236,7 +238,7 @@ describe("I AM: confirm after payment", () => {
     const status = await completeMockPayment(token, "success");
     expect(status).toMatchObject({ status: "paid", screen: "wait" });
     expect((await row(ref)).confirmState).toBe("unknown_retrying");
-    expect(await templates(ref)).not.toContain("booking_confirmed");
+    expect(await bookedSent(ref)).toBe(false);
     const db = await getDb();
     const retry = await db.select().from(jobs).where(eq(jobs.dedupeKey, `confirm:${ref}`));
     expect(retry[0]).toMatchObject({ status: "pending", maxAttempts: 2000 });
@@ -248,7 +250,7 @@ describe("I AM: confirm after payment", () => {
     expect(fake.bookings.size).toBe(1);
     expect(await row(ref)).toMatchObject({ confirmState: "confirmed", refundState: "none" });
     expect((await getBookingStatus(token)).screen).toBe("done");
-    expect(await templates(ref)).toContain("booking_confirmed");
+    expect(await bookedSent(ref)).toBe(true);
     expect(await issues(ref)).toHaveLength(0);
   });
 
@@ -279,7 +281,7 @@ describe("I AM: confirm after payment", () => {
     expect(await row(ref)).toMatchObject({ confirmState: "not_booked", confirmErrorCode: "HOLD_EXPIRED", refundState: "required" });
     const [issue] = await issues(ref);
     expect(issue).toMatchObject({ type: "paid_not_booked", detail: expect.objectContaining({ code: "HOLD_EXPIRED", ourBug: false }) });
-    expect(await templates(ref)).not.toContain("booking_confirmed");
+    expect(await bookedSent(ref)).toBe(false);
   });
 
   it("phone mismatch is a definite failure and flags our bug (checklist 18)", async () => {
@@ -355,54 +357,6 @@ describe("I AM: holds are never released while a payment may still arrive", () =
   });
 });
 
-describe("I AM: status before reminders (guide 7.4)", () => {
-  async function bookedRef() {
-    const { token, ref } = await submitDetails(details());
-    const [slot] = await slotsFor(token);
-    await holdSlot(token, slot!.slotId);
-    await createPaymentOrder(token, { promotional: false });
-    await completeMockPayment(token, "success");
-    const db = await getDb();
-    const [a] = await db.select().from(appointments).where(eq(appointments.ref, ref));
-    return { ref, a: a!, r: await row(ref) };
-  }
-  const reminder = (ref: string, slotStart: Date) =>
-    handlers["reminder.send"]!({ ref, kind: "reminder_24h", slotStart: slotStart.toISOString() }, {} as never);
-
-  it("sends the reminder when nothing changed", async () => {
-    const { ref, a } = await bookedRef();
-    await reminder(ref, a.slotStart!);
-    expect(await templates(ref)).toContain("reminder_24h");
-    expect(fake.requestsTo("GET", "/bookings/")).toHaveLength(1);
-  });
-
-  it("I AM admin moved the booking: we take the new time, skip this reminder and reschedule", async () => {
-    const { ref, a, r } = await bookedRef();
-    const later = new Date(a.slotStart!.getTime() + 3 * 24 * 3600_000);
-    const fmt = (d: Date) => new Date(d.getTime() + 5.5 * 3600_000).toISOString().slice(0, 19) + "+05:30";
-    fake.adminMove(r.iamBookingId!, fmt(later), fmt(new Date(later.getTime() + 30 * 60_000)));
-    await reminder(ref, a.slotStart!);
-
-    const db = await getDb();
-    const [after] = await db.select().from(appointments).where(eq(appointments.ref, ref));
-    expect(after!.slotStart!.getTime()).toBe(later.getTime());
-    expect(after!.status).toBe("rescheduled");
-    expect(await templates(ref)).not.toContain("reminder_24h");
-    const pending = await db.select().from(jobs).where(and(like(jobs.dedupeKey, `reminder:${ref}:%`), eq(jobs.status, "pending")));
-    expect(pending.every((j) => String((j.payload as { slotStart: string }).slotStart) === later.toISOString())).toBe(true);
-  });
-
-  it("I AM cancelled the booking: no reminder, booking marked cancelled", async () => {
-    const { ref, a, r } = await bookedRef();
-    fake.adminCancel(r.iamBookingId!);
-    await reminder(ref, a.slotStart!);
-    const db = await getDb();
-    const [after] = await db.select().from(appointments).where(eq(appointments.ref, ref));
-    expect(after!.status).toBe("cancelled");
-    expect(await templates(ref)).not.toContain("reminder_24h");
-  });
-});
-
 describe("I AM: online consultations (guide 10)", () => {
   beforeEach(() => useIam(["online"]));
 
@@ -413,7 +367,7 @@ describe("I AM: online consultations (guide 10)", () => {
     expect(fake.requestsTo("POST", "/holds/")).toHaveLength(0);
   });
 
-  it("confirms with the same email, stores the app session and sends joining instructions (checklist 5)", async () => {
+  it("confirms with the same email, stores the app session and tells Slixta it is online (checklist 5)", async () => {
     const { token, ref } = await submitDetails(details({ who: "Myself", theirName: "" }));
     const [slot] = await slotsFor(token);
     expect(slot!.slotId).toContain(DOC_ASHA); // the only doctor taking online
@@ -426,13 +380,13 @@ describe("I AM: online consultations (guide 10)", () => {
     const r = await row(ref);
     expect(r).toMatchObject({ mode: "online", confirmState: "confirmed", sessionBookingId: expect.any(String), accountState: "created" });
     expect(JSON.parse(r.confirmRequestBody!).visitor.email).toBe("asha@example.com");
-    const db = await getDb();
-    const [m] = await db.select().from(messages).where(eq(messages.clientRef, `booking_confirmed-${ref}`));
-    expect(m).toMatchObject({ template: "booking_confirmed_online" });
-    expect((m!.body as { variables: Record<string, string> }).variables).toMatchObject({ doctor: "Dr Asha Rao", email: "asha@example.com" });
+    await runJobsNow();
+    const [booked] = slixta.interactions().filter((i) => i.iType === "APPOINTMENT BOOKED" && i.payload._bookingRef === ref);
+    expect(booked!.payload).toMatchObject({ _doctor: "Dr Asha Rao", _consultMode: "online", _calendarBookingId: r.iamBookingId });
+    expect(interactionBody({}, booked!).items[0]!.extpayload).not.toHaveProperty("_centreAddress"); // empty fields are not sent
   });
 
-  it("takes the email at the time step when the guest skipped it, and sends online reminders without an address", async () => {
+  it("takes the email at the time step when the guest skipped it, and sends it to Slixta", async () => {
     const { token, ref } = await submitDetails(details({ who: "Myself", theirName: "", email: "" }));
     const [slot] = await slotsFor(token, { doctorId: DOC_ASHA, mode: "online" });
     await holdSlot(token, slot!.slotId, { email: "Late@Example.com" });
@@ -442,11 +396,8 @@ describe("I AM: online consultations (guide 10)", () => {
     const db = await getDb();
     const [a] = await db.select().from(appointments).where(eq(appointments.ref, ref));
     expect(a).toMatchObject({ consultMode: "online", resourceName: "Dr Asha Rao" });
-    await handlers["reminder.send"]!({ ref, kind: "visit_day", slotStart: a!.slotStart!.toISOString() }, {} as never);
-    await handlers["reminder.send"]!({ ref, kind: "reminder_24h", slotStart: a!.slotStart!.toISOString() }, {} as never);
-    const t = await templates(ref);
-    expect(t).toContain("reminder_online");
-    expect(t).not.toContain("visit_day");
-    expect(t).not.toContain("reminder_24h");
+    await runJobsNow();
+    const [c] = await db.select().from(contacts).where(eq(contacts.id, a!.contactId));
+    expect(slixta.leads(c!.phone).at(-1)).toMatchObject({ email: "late@example.com" });
   });
 });

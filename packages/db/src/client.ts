@@ -1,3 +1,4 @@
+import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { drizzle as drizzlePg, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
@@ -56,8 +57,13 @@ function open(): State {
     const { drizzle } = await import("drizzle-orm/pglite");
     const { migrate } = await import("drizzle-orm/pglite/migrator");
     const dir = url.startsWith("pglite:") ? url.slice("pglite:".length) : process.env.PGLITE_DIR;
-    const client =
-      dir === "memory" ? new PGlite() : new PGlite(dir || path.resolve(process.cwd(), ".data/pglite"));
+    let client;
+    if (dir === "memory") client = new PGlite();
+    else {
+      const dataDir = dir || path.resolve(process.cwd(), ".data/pglite");
+      mkdirSync(dataDir, { recursive: true }); // PGlite only creates the last folder, not its parents
+      client = new PGlite(dataDir);
+    }
     const pg = drizzle(client, { schema });
     await migrate(pg, { migrationsFolder: MIGRATIONS_DIR });
     closer = () => client.close();

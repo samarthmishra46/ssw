@@ -15,7 +15,7 @@ export {
   type Screen,
   type RequestMeta,
 } from "./booking";
-export { handleRazorpayWebhook, handleCalendarWebhook, handleSlixtaWebhook } from "./webhooks";
+export { handleRazorpayWebhook, handleCalendarWebhook } from "./webhooks";
 export { ingestEntryEvent, setStage } from "./leads";
 export { openPaymentIssue } from "./payment-issues";
 export { tick, enqueue, cancelJobs, claimById, runClaimed, type JobType } from "./jobs/queue";

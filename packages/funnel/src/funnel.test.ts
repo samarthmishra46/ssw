@@ -5,7 +5,8 @@ process.env.DATABASE_URL = "pglite:memory";
 process.env.LINK_SIGNING_SECRET = "test-secret";
 process.env.RAZORPAY_WEBHOOK_SECRET = "rzp-webhook-secret";
 
-import { and, appointments, closeDb, consents, contacts, eq, getDb, jobs, like, messages, paymentIssues, payments } from "@ssw/db";
+import { and, appointments, closeDb, consents, contacts, eq, getDb, jobs, like, paymentIssues, payments } from "@ssw/db";
+import { integrations, MockSlixtaClient } from "@ssw/integrations";
 import {
   completeMockPayment,
   createPaymentOrder,
@@ -33,6 +34,8 @@ const details = (over: Record<string, unknown> = {}) => ({
   attribution: { utm_source: "facebook", utm_campaign: "ahm-joints-nov" },
   ...over,
 });
+
+const slixta = () => integrations().slixta as MockSlixtaClient;
 
 async function firstSlot(token: string, index = 0) {
   const { days } = await getSlots(token);
@@ -66,6 +69,8 @@ describe("paid booking, happy path", () => {
     expect(cs.map((x) => x.type)).toEqual(["booking_contact"]);
     expect(cs[0]!.text).toContain("permission to share their details");
     expect((await getBookingStatus(token)).screen).toBe("s2");
+    const leadJobs = await db.select().from(jobs).where(and(eq(jobs.type, "slixta.lead"), like(jobs.dedupeKey, "slixta-lead:%")));
+    expect(leadJobs.some((j) => (j.payload as { appointmentId: string }).appointmentId)).toBe(true);
   });
 
   it("step 2 holds a slot for 15 minutes and moves the stage to Payment Pending", async () => {
@@ -106,20 +111,40 @@ describe("paid booking, happy path", () => {
     const [c] = await db.select().from(contacts).where(eq(contacts.phone, "+919876543210"));
     expect(c!.stage).toBe("confirmed_paid");
     expect(c!.promotionalConsent).toBe(true);
-    const sent = await db.select().from(messages).where(eq(messages.contactId, c!.id));
-    expect(sent.map((m) => m.template)).toContain("booking_confirmed");
-    const reminders = await db.select().from(jobs).where(like(jobs.dedupeKey, `reminder:${ref}:%`));
-    expect(reminders.length).toBeGreaterThanOrEqual(1);
+    const booked = await db.select().from(jobs).where(eq(jobs.dedupeKey, `slixta-booked:${ref}`));
+    expect(booked).toHaveLength(1);
   });
 
-  it("queued jobs run against the mock partners", async () => {
+  it("sends Slixta the lead and APPOINTMENT BOOKED, nothing else", async () => {
     const { failed } = await runDueJobs();
     expect(failed).toBe(0);
+    const phone = "+919876543210";
+
+    const [lead] = slixta().leads(phone);
+    expect(lead).toMatchObject({
+      name: "Asha Patel",
+      email: "asha@example.com",
+      pageLink: "http://localhost:3000/ahmedabad/joints",
+      fields: { _bookingRef: ref, _who: "My parent", _patientName: "Ramesh Patel", _utm_campaign: "ahm-joints-nov", _source: "web_form" },
+    });
+    expect(String(lead!.fields._resumeUrl)).toContain("/ahmedabad/joints?t=");
+
+    const sent = slixta().interactions(phone);
+    expect(sent.map((i) => i.iType)).toEqual(["APPOINTMENT BOOKED"]);
     const db = await getDb();
-    const [c] = await db.select().from(contacts).where(eq(contacts.phone, "+919876543210"));
-    expect(c!.slixtaId).toMatch(/^ct_mock_/);
-    const [m] = await db.select().from(messages).where(and(eq(messages.contactId, c!.id), eq(messages.template, "booking_confirmed")));
-    expect(m!.status).toBe("logged");
+    const [a] = await db.select().from(appointments).where(eq(appointments.ref, ref));
+    expect(sent[0]!.payload).toMatchObject({
+      _bookingRef: ref,
+      _appointmentTime: a!.slotStart!.getTime(),
+      _appointmentService: ["Consultation"],
+      _amountInr: 500,
+      _paymentId: expect.stringMatching(/^pay_mock_/),
+    });
+    expect(String(sent[0]!.payload._bookingUrl)).toContain(`/booking/${ref}?t=`);
+
+    // A retry of the same job never sends the booking twice.
+    await runDueJobs();
+    expect(slixta().interactions(phone)).toHaveLength(1);
   });
 
   it("a later form submit never creates a second contact or moves the stage back", async () => {
@@ -132,8 +157,27 @@ describe("paid booking, happy path", () => {
   });
 });
 
+describe("step 1 input", () => {
+  it("accepts a lead from a long ad link, cutting tracking values to length", async () => {
+    const long = "x".repeat(900);
+    const res = await submitDetails(
+      details({ mobile: "9876500011", attribution: { utm_source: "facebook", fbclid: long, landing_url: `/ahmedabad/joints?fbclid=${long}`, extra: 1 } }),
+    );
+    expect(res.ref).toMatch(/^AHM-\d{6}$/);
+    const db = await getDb();
+    const [c] = await db.select().from(contacts).where(eq(contacts.phone, "+919876500011"));
+    expect(c!.firstAttribution.fbclid).toHaveLength(500);
+    expect(c!.firstAttribution.landing_url).toHaveLength(500);
+    expect(c!.firstAttribution).not.toHaveProperty("extra");
+  });
+
+  it("still accepts the lead when attribution is malformed", async () => {
+    await expect(submitDetails(details({ mobile: "9876500012", attribution: "nonsense" }))).resolves.toMatchObject({ ref: expect.any(String) });
+  });
+});
+
 describe("no payment within 15 minutes", () => {
-  it("expires the hold, sets Checkout Abandoned and starts recovery; resuming cancels it", async () => {
+  it("expires the hold, sets Checkout Abandoned and tells Slixta once; a late payment still books", async () => {
     const { token, ref } = await submitDetails(details({ mobile: "9000000001", who: "Myself", theirName: "" }));
     await holdSlot(token, await firstSlot(token));
     const db = await getDb();
@@ -146,21 +190,21 @@ describe("no payment within 15 minutes", () => {
     expect(after!.status).toBe("expired");
     const [c] = await db.select().from(contacts).where(eq(contacts.id, a!.contactId));
     expect(c!.stage).toBe("abandoned_failed");
-    const steps = await db.select().from(jobs).where(like(jobs.dedupeKey, `recovery:${ref}:%`));
-    expect(steps).toHaveLength(5);
 
+    await onPaymentTimeout(ref, a!.reservationId!); // the calendar's expiry event, after our timer
     await runDueJobs();
-    const msgs = await db.select().from(messages).where(eq(messages.appointmentId, a!.id));
-    expect(msgs.map((m) => m.template)).toContain("resume_payment");
+    const abandoned = slixta().interactions("+919000000001");
+    expect(abandoned.map((i) => i.iType)).toEqual(["CHECKOUT ABANDONED"]);
+    expect(abandoned[0]!.payload).toMatchObject({ _bookingRef: ref, _slotTime: a!.slotStart!.getTime() });
+    expect(String(abandoned[0]!.payload._resumeUrl)).toContain("/ahmedabad/joints?t=");
     expect((await getBookingStatus(token)).screen).toBe("expired");
 
-    // Visitor opens the resume link and picks a new time: remaining recovery steps are cancelled.
+    // Visitor opens the resume link, picks a new time and pays: Slixta hears APPOINTMENT BOOKED.
     await holdSlot(token, await firstSlot(token, 1));
-    const pending = await db
-      .select()
-      .from(jobs)
-      .where(and(like(jobs.dedupeKey, `recovery:${ref}:%`), eq(jobs.status, "pending")));
-    expect(pending).toHaveLength(0);
+    await createPaymentOrder(token, { promotional: false });
+    await completeMockPayment(token, "success");
+    await runDueJobs();
+    expect(slixta().interactions("+919000000001").map((i) => i.iType)).toEqual(["CHECKOUT ABANDONED", "APPOINTMENT BOOKED"]);
   });
 });
 
@@ -178,6 +222,8 @@ describe("payment verification", () => {
     expect(issues.map((i) => i.type)).toEqual(["webhook_mismatch"]);
     const [c] = await db.select().from(contacts).where(eq(contacts.id, a!.contactId));
     expect(c!.automationPaused).toBe(true);
+    await runDueJobs();
+    expect(slixta().interactions("+919000000002")).toHaveLength(0);
   });
 
   it("accepts a signed Razorpay webhook once and ignores the duplicate", async () => {

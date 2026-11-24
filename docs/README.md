@@ -5,7 +5,7 @@ Planning documents for the Sri Sri Wellbeing paid consultation funnel: Next.js l
 | File | Audience | What it covers |
 | --- | --- | --- |
 | [01-project-plan.md](01-project-plan.md) | Our team | The whole system mapped to the Figma board: channels, lead rules, payment check, recovery, reminders, telecalling, settlement, architecture, Ops DB, phases, open questions |
-| [02-slixta-crm-api-requirements.md](02-slixta-crm-api-requirements.md) | Slixta engineering | Endpoints and webhook we need: contacts, stages, appointments, activities, flags, tasks, segments, WhatsApp inbox |
+| [02-slixta-crm-api-requirements.md](02-slixta-crm-api-requirements.md) | Our team / Slixta | The agreed integration: three one-way calls (lead, CHECKOUT ABANDONED, APPOINTMENT BOOKED), fields, setup. Slixta runs WhatsApp, reminders, recovery and telecalling |
 | [03-calendar-integration.md](03-calendar-integration.md) | Our calendar team | Replacing Cal.com: availability, 15-min holds, bookings, reception moves, webhooks |
 | [04-deployment-vercel-aws.md](04-deployment-vercel-aws.md) | Our team / DevOps | Vercel demo, then AWS Mumbai: CloudFront, ECS Fargate, RDS, SQS, EventBridge, Secrets Manager, CloudWatch |
 | [05-channel-integrations.md](05-channel-integrations.md) | Our team | Razorpay, WhatsApp + AI bot tools API, ManyChat, Bolna, Meta Pixel / CAPI, WhatsApp templates |

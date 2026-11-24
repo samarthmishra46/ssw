@@ -52,14 +52,14 @@ flowchart LR
 
 1. Push the monorepo to GitHub and import `apps/web` into Vercel (root directory `apps/web`). `main` becomes the demo URL; every pull request gets a preview.
 2. Add Postgres from the Vercel Marketplace (Neon). Set `DATABASE_URL`. Run `npm run db:migrate`.
-3. Set environment variables with **test values only**: Slixta sandbox (or `SLIXTA_MODE=mock`), calendar staging (or `CALENDAR_MODE=mock`), Razorpay test keys, `WHATSAPP_MODE=log` until the Slixta WhatsApp send API is ready.
+3. Set environment variables with **test values only**: Slixta keys, org and data source IDs (or leave them empty for mock mode), calendar staging (or `CALENDAR_MODE=mock`), Razorpay test keys.
 4. Set `QUEUE_DRIVER=postgres` and `SCHEDULER_DRIVER=postgres`.
-5. Add a per-minute Vercel Cron in `apps/web/vercel.json` calling `/api/cron/tick` (runs due schedules and queued jobs). Per-minute crons need a paid Vercel plan.
+5. **Background jobs.** Partner calls (Slixta, Meta) run straight after each form, hold or payment request, using Next's `after()` (`apps/web/lib/route.ts`). The 15-minute payment timer needs a call every minute: set `CRON_SECRET` in Vercel, then add a job on [cron-job.org](https://cron-job.org):
+   - URL `https://<demo-domain>/api/cron/tick`, method `GET`, every minute
+   - Header `Authorization: Bearer <CRON_SECRET>`
+   - Notify on failure
 
-   ```json
-   { "crons": [{ "path": "/api/cron/tick", "schedule": "* * * * *" }] }
-   ```
-
+   Vercel's own daily cron in `apps/web/vercel.json` stays as a backup (the free plan allows only daily crons). On AWS none of this is needed: SQS and EventBridge trigger the worker.
 6. Register test webhooks to the demo domain: Razorpay (test mode), Slixta sandbox (including WhatsApp events), calendar staging; ManyChat and Bolna in phase 2.
 7. Turn on Vercel Deployment Protection until launch.
 
@@ -109,10 +109,9 @@ flowchart LR
 | `SITE_URL` | Canonical URLs, links in messages, webhook registration |
 | `QUEUE_DRIVER` (`sqs` / `postgres`), `SQS_QUEUE_URL_*` | Queue adapter |
 | `SCHEDULER_DRIVER` (`eventbridge` / `postgres`), `SCHEDULER_ROLE_ARN`, `SCHEDULER_TARGET_QUEUE_ARN` | Timer adapter |
-| `SLIXTA_API_URL`, `SLIXTA_API_KEY`, `SLIXTA_WEBHOOK_SECRET` | CRM |
+| `SLIXTA_SUBMIT_API_KEY`, `SLIXTA_INTERACTIONS_API_KEY`, `SLIXTA_ORG_ID`, `SLIXTA_DATA_SOURCE_ID`, `SLIXTA_AGENT_EMAIL`, `SLIXTA_APPOINTMENT_SERVICE` | CRM (docs/02) |
 | `CALENDAR_API_URL`, `CALENDAR_API_KEY`, `CALENDAR_WEBHOOK_SECRET` | Calendar |
 | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `NEXT_PUBLIC_RAZORPAY_KEY_ID` | Payments |
-| `WHATSAPP_MODE` (`slixta` / `log`) | WhatsApp is sent through Slixta's API (uses the Slixta keys); `log` only records messages, for the demo |
 | `AI_BOT_URL`, `AI_BOT_API_KEY`, `BOT_TOOLS_API_KEY` | Client's AI bot and the tools API it calls |
 | `MANYCHAT_WEBHOOK_SECRET` | ManyChat External Request auth |
 | `BOLNA_API_KEY`, `BOLNA_AGENT_ID`, `BOLNA_WEBHOOK_SECRET` | AI calls |

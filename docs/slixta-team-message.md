@@ -1,3 +1,5 @@
+> **Superseded (24 Nov 2026).** Slixta answered these questions in Renzil's summary email. The agreed integration is in [02-slixta-crm-api-requirements.md](02-slixta-crm-api-requirements.md).
+
 **Subject: Sri Sri Wellbeing funnel: Slixta integration details we need**
 
 Hi Slixta team,

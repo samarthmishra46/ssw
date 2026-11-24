@@ -1,5 +1,7 @@
 # SSW Paid Appointment Funnel — Project Plan
 
+> **Update 24 Nov 2026: Slixta integration narrowed.** The landing page now sends Slixta three things only: the lead, CHECKOUT ABANDONED and APPOINTMENT BOOKED. WhatsApp messages, reminders, checkout recovery, telecaller tasks, no-show follow-up, reschedules, cancellations and Nurture all run as Slixta workflows, and Slixta sends nothing back. Where this plan says our backend does those things, or that Slixta calls us, docs/02 now applies. The WhatsApp AI bot, ManyChat and Bolna (phase 2) need a fresh design with Slixta.
+
 _Last updated: 13 Nov 2026 · Sources: `SSW_Ahmedabad_NadiPariksha_MASTER.html` (mock-up v1) and the Figma board "Sri Sri Wellness — Paid Appointment Funnel v5" (all 14 sections reviewed)_
 
 ## In one paragraph

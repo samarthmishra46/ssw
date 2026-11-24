@@ -2,7 +2,7 @@ import { and, asc, eq, getDb, inArray, jobs, like, lte, or, sql } from "@ssw/db"
 import { alert, logEvent } from "../events";
 
 /**
- * Jobs and timers (board sections 4, 5, 8, 12).
+ * Jobs and timers: the payment timer, the booking-confirm retry and partner calls (Slixta, Meta).
  * The jobs table is the source of truth. Drivers only decide how a job is triggered:
  *  - postgres: the per-minute tick (Vercel Cron, the worker loop or dev interval) runs due jobs
  *  - sqs:      SQS (delay up to 15 min) or EventBridge Scheduler (later) triggers the worker;
@@ -10,18 +10,12 @@ import { alert, logEvent } from "../events";
  */
 
 export type JobType =
-  | "slixta.contact"
-  | "slixta.consent"
-  | "slixta.activity"
-  | "slixta.appointment"
-  | "slixta.task"
-  | "slixta.segment"
-  | "whatsapp.send"
+  | "slixta.lead"
+  | "slixta.checkout_abandoned"
+  | "slixta.appointment_booked"
   | "meta.capi"
   | "booking.confirm"
-  | "payment.timeout"
-  | "recovery.step"
-  | "reminder.send";
+  | "payment.timeout";
 
 export type EnqueueOptions = { runAt?: Date; dedupeKey?: string; maxAttempts?: number };
 
@@ -55,7 +49,7 @@ export async function enqueue(type: JobType, payload: Record<string, unknown>, o
   return id;
 }
 
-/** Cancel pending jobs whose dedupe key starts with a prefix, e.g. "recovery:AHM-123456:". */
+/** Cancel pending jobs whose dedupe key starts with a prefix, e.g. "timeout:AHM-123456:". */
 export async function cancelJobs(dedupePrefix: string): Promise<number> {
   const db = await getDb();
   const rows = await db

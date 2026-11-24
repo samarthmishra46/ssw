@@ -5,7 +5,7 @@ _Source: I AM Partner Booking API Integration Guide v1.1 (12 Nov 2026) and the P
 
 ## Summary
 
-I AM owns the doctors, their fees and their calendars. The guest picks a doctor from I AM's list, then a day and time. We **hold** the slot for 15 minutes while they pay that doctor's I AM fee on our Razorpay checkout, then **confirm** it. SSW keeps everything else: payments, refunds and every WhatsApp message.
+I AM owns the doctors, their fees and their calendars. The guest picks a doctor from I AM's list, then a day and time. We **hold** the slot for 15 minutes while they pay that doctor's I AM fee on our Razorpay checkout, then **confirm** it. SSW keeps payments and refunds. Slixta sends every WhatsApp message (docs/02).
 
 The funnel already talks to "a calendar" through one interface. I AM is now a third implementation next to the mock calendar and our own calendar app (docs/03).
 
@@ -34,7 +34,7 @@ The funnel already talks to "a calendar" through one interface. I AM is now a th
 
 | Confirm answer | What the funnel does |
 | --- | --- |
-| `201` confirmed, or `200` replayed | Booking saved, WhatsApp receipt and reminders sent |
+| `201` confirmed, or `200` replayed | Booking saved, Slixta told `APPOINTMENT BOOKED` (it sends the receipt and reminders) |
 | `409` `SLOT_UNAVAILABLE`, `HOLD_EXPIRED` | Appointment becomes **Payment Issue** `paid_not_booked`, refund required, telecaller task created |
 | `409` `PARTNER_BOOKING_ID_CONFLICT`, `HOLD_ALREADY_CONFIRMED`, `400` `VALIDATION_ERROR`, `PHONE_MISMATCH`, `EMAIL_MISMATCH` | Same as above, plus an `[ALERT]` because it means a bug on our side (`ourBug: true` on the issue) |
 | `5xx`, timeout, network error, `429 THROTTLED` | Payment kept, guest sees "We're still confirming your payment", **no receipt yet**. The same request is retried after 5 s, 15 s, 1 min, then every 5 min for about a week. An `[ALERT]` fires after the 6th attempt |
@@ -59,13 +59,12 @@ sequenceDiagram
     R->>W: Webhook: captured
     W->>I: POST /bookings/confirm/ (stored body)
     alt confirmed
-        W-->>G: WhatsApp receipt + reminders
+        W->>W: Slixta: APPOINTMENT BOOKED
     else not booked
         W->>W: Payment Issue: refund
     else unknown
         W->>I: Retry same body until a definite answer
     end
-    Note over W,I: Before every reminder: GET /bookings/{id}/
 ```
 
 ## How the funnel uses I AM
@@ -78,7 +77,7 @@ sequenceDiagram
 
 **Price.** Each doctor card and the pay button show the doctor's I AM fee. The Razorpay order is for the fee I AM locks at hold, and the confirm reports `amount_paid_paisa` = `iam_fee_paisa` with `discount_paisa` 0. The landing page no longer names an amount, because fees differ per doctor (₹17 to ₹500 on staging). The hero, sticky bar, bullets, meta descriptions, refund text and the terms consent (now version `web-2026-11-v2`) all say "the consultation fee" instead. The mock calendar still charges the centre's `feeInr`.
 
-**Status before reminders.** I AM admin can move or cancel a booking, and I AM sends no webhook. So before each WhatsApp reminder we read the booking. If it was cancelled, we mark it cancelled and send nothing. If it was moved, we save the new time and reschedule the reminders. If I AM can't be reached, the reminder goes out with the stored details.
+**Moves and cancellations.** Reminders, reschedules and cancellations are Slixta's (the telecaller changes the booking; Slixta sends the messages). We no longer read the booking before reminders, because we no longer send them. I AM sends no webhook when its admin moves or cancels a booking, so Slixta's team needs to keep I AM and Slixta in step.
 
 **What we send I AM about the guest.** The person the consultation is for, as first and last name. The booker's phone, which must match the hold. The booker's email, when given. A short note for the doctor, such as "Nadi Pariksha: Knees · Back · Joints. Booked by Asha Patel for their parent. Prefers Gujarati". For centre visits the email is optional: if I AM says that email's account is closed, we hold again without it.
 
@@ -108,7 +107,7 @@ Keys are server-side secrets only. They are never sent to the browser and never 
 
 ## When a guest paid but was not booked (operations)
 
-1. A Payment Issue of type `paid_not_booked` appears and the centre telecaller gets a task in Slixta. Automation for the contact is paused. The guest's page says "We couldn't confirm your payment in time" and asks them to call reception.
+1. A Payment Issue of type `paid_not_booked` appears in the Ops DB with an `[ALERT]` in the logs. Nothing is sent to Slixta (it only hears about confirmed bookings). Automation for the contact is paused. The guest's page says "We couldn't confirm your payment in time" and asks them to call reception.
 2. Refund the full amount in the Razorpay dashboard. **Refunds are manual today**: nothing in the funnel calls Razorpay's refund API.
 3. Call or message the guest and offer a new time.
 4. When the issue detail says `ourBug: true`, send engineering the `ref` and `partner_booking_id`.
@@ -131,10 +130,9 @@ Ahmedabad offers both modes (`iam.modes` in `packages/content`). The live doctor
 - Email is required at hold and confirm, and must match. If the guest skipped email in step 1, step 2 asks for it ("Email for the I AM app") before holding.
 - The length is fixed by I AM (20 minutes today). We don't send `duration_minutes`.
 - The booking card, booking page and calendar file say "Online video call" and show no map.
-- One WhatsApp reminder goes out 24 h before (`reminder_online`, no address). The visit-day map message is skipped.
-- The receipt uses the WhatsApp template `booking_confirmed_online`. Both templates need Meta approval first:
+- APPOINTMENT BOOKED carries `_consultMode: "online"` and no centre address. Slixta's confirmation for online bookings should explain how to join, for example:
 
-> Your online consultation with {{doctor}} is on {{date}} at {{time}}. Download the I AM app and sign in with {{email}}, using Continue with Google, Sign up, or Forgot password. Your consultation will be waiting in your sessions. Join from there a few minutes before the start.
+> Your online consultation with {{doctor}} is on {{date}} at {{time}}. Download the I AM app and sign in with the email you booked with, using Continue with Google, Sign up, or Forgot password. Your consultation will be waiting in your sessions. Join from there a few minutes before the start.
 
 ## Staging results (21 Nov 2026, SSW Ahmedabad key)
 
@@ -160,7 +158,7 @@ I AM allows 120 requests a minute per key. Choosing a doctor costs 1 + D calls (
 | `packages/integrations/src/iam/calendar.ts` | The calendar adapter used by the funnel |
 | `packages/integrations/src/iam/keys.ts` | Keys per centre, rotation |
 | `packages/db/src/schema.ts` → `iam_bookings` | One row per hold, through confirm and refund |
-| `packages/funnel/src/booking.ts`, `calendar-sync.ts` | Release rule, price, confirm retry, refund issue, reminder lookup |
+| `packages/funnel/src/booking.ts` | Release rule, price, confirm retry, refund issue |
 
 ## Tests
 
@@ -179,20 +177,20 @@ Marked `TODO(iam)` in the code. Answered on 21 Nov: keys are per centre, live do
 
 | # | Question | For | Why it matters |
 | --- | --- | --- | --- |
-| 1 | A webhook when I AM admin moves or cancels a booking | I AM | Today we only find out at the next reminder |
+| 1 | A webhook when I AM admin moves or cancels a booking | I AM | Nobody hears about it today; Slixta would need it to message the guest |
 | 2 | One open hold per phone: a guest booking for themselves and a parent at the same time loses the first hold | I AM | Rare. Worth knowing for support |
 | 3 | A `401`/`403` on Confirm is treated as "not booked" (per the one rule). Should we instead fix the key and confirm again? | I AM | Avoids refunding when only our key was wrong |
 | 4 | Any format or length limit on `partner_booking_id`? Ours look like `AHM-482913-6f1b8f3a2f3e`. Staging accepted them | I AM | Validation |
 | 5 | Does `429` include `Retry-After`? | I AM | We honour it if present, else wait 2–4 s |
 | 6 | A staging doctor who takes centre visits, to test that path once against I AM | I AM | Centre visits are only tested against our fake today |
 | 7 | Automate refunds through Razorpay's API, or keep them manual? | SSW | Manual today |
-| 8 | Meta approval for `booking_confirmed_online` and `reminder_online` | SSW | Needed before online bookings go live |
+| 8 | Slixta's confirmation and reminder for online bookings (how to join in the I AM app) | Slixta / SSW | Needed before online bookings go live |
 
 ## Going live
 
 1. Tell I AM which centres launch (Ahmedabad first).
 2. Staging checks: done on 21 Nov (see Staging results). Repeat one full booking on the Vercel demo with `IAM_API_BASE_URL` pointing at staging.
-3. Get Meta approval for `booking_confirmed_online` and `reminder_online`.
+3. Slixta's workflows for online bookings are ready (joining instructions, no address).
 4. I AM issues the live key for each centre through a secure channel. Put it in AWS Secrets Manager (docs/04) as `IAM_API_KEY_<CODE>`.
 5. Switch the base URL to `https://api.iamlife.guru/api/v1/partner` and the keys to the live ones. This is configuration only, no code change.
 6. Make one real booking per centre, at the centre and online, and check it with `GET /bookings/{partner_booking_id}/`.

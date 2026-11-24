@@ -1,6 +1,6 @@
 # SSW Paid Appointment Funnel
 
-Next.js landing pages and booking flow for Sri Sri Wellbeing's ₹500 Nadi Pariksha consultation, with the funnel backend: Ops DB, lead rules, Slixta CRM sync, our own calendar, Razorpay, WhatsApp through Slixta, and checkout recovery. Phase 1 of the plan in [docs/](docs/README.md).
+Next.js landing pages and booking flow for Sri Sri Wellbeing's ₹500 Nadi Pariksha consultation, with the funnel backend: Ops DB, lead rules, our own calendar or I AM, Razorpay, and three calls to Slixta CRM (lead, checkout abandoned, appointment booked). Slixta runs WhatsApp, reminders and recovery. Phase 1 of the plan in [docs/](docs/README.md).
 
 ## Run it locally (no accounts needed)
 
@@ -14,10 +14,10 @@ With no environment variables set, everything runs locally:
 | Part | Local behaviour |
 | --- | --- |
 | Database | PGlite (Postgres in-process) in `apps/web/.data/pglite`, migrated automatically |
-| Slixta | Mock client, logs every call (`[slixta:mock]`) |
+| Slixta | Mock client, logs every call (`[slixta:mock] POST /submits`, `POST /extinteractions`). Set `SLIXTA_SUBMIT_API_KEY`, `SLIXTA_INTERACTIONS_API_KEY`, `SLIXTA_ORG_ID`, `SLIXTA_DATA_SOURCE_ID` to send for real ([docs/02](docs/02-slixta-crm-api-requirements.md)) |
 | Calendar | Mock calendar with the mock-up's slot grid; holds are real (15 min, no double booking). Set `IAM_API_BASE_URL` + a centre key (`IAM_API_KEY_AHM`) to use the I AM Partner Booking API ([docs/06](docs/06-iam-partner-booking.md)) |
 | Razorpay | Test mode: the pay step shows "Payment succeeds / Payment fails" buttons |
-| WhatsApp | Messages are recorded in the `messages` table and logged |
+| WhatsApp | Not sent by us: Slixta's workflows send every message |
 | Jobs and timers | A 15 s ticker inside the dev server runs due jobs |
 
 If DNS lookups for IPv6 addresses time out on your network (I AM calls hang ~15 s), start with `NODE_OPTIONS="--require ./scripts/ipv4-dns.cjs" npm run dev`.
@@ -33,7 +33,7 @@ packages/core   Funnel rules: phone, stage ranking, lead rules, signed links, si
 packages/content Centres and programme copy (add a centre or campaign here)
 packages/db     Ops DB schema (Drizzle) and migrations
 packages/integrations  Slixta, calendar (own app, I AM, mock), Razorpay, Meta CAPI clients
-packages/funnel Application services: booking, payments, recovery, reminders, webhooks, jobs
+packages/funnel Application services: booking, payments, Slixta sync, webhooks, jobs
 docs/           Plan, Slixta and calendar API specs, deployment guide, channel integrations
 ```
 
@@ -42,7 +42,7 @@ docs/           Plan, Slixta and calendar API specs, deployment guide, channel i
 - Landing pages: `/ahmedabad/joints`, `/ahmedabad/sleep`, `/ahmedabad/women` (UTM parameters are captured automatically)
 - Booking status (linked from the WhatsApp receipt): `/booking/<ref>?t=<token>`
 - Booking API: `POST /api/leads`, `GET /api/slots`, `POST /api/holds`, `POST /api/holds/release`, `POST /api/payments/order`, `POST /api/payments/verify`, `GET /api/bookings/status`, `GET /api/bookings/ics`
-- Webhooks: `POST /api/webhooks/razorpay`, `/api/webhooks/calendar`, `/api/webhooks/slixta`
+- Webhooks: `POST /api/webhooks/razorpay`, `/api/webhooks/calendar`
 - Ops: `GET /api/cron/tick` (Vercel Cron), `GET /api/health`
 
 ## Tests

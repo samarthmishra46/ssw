@@ -22,7 +22,6 @@ export const centres: Record<string, Centre> = {
     feeInr: 500,
     languages: ["Gujarati", "Hindi", "English"],
     slixtaOwnerId: null,
-    slixtaTelecallerId: null,
     calendarService: "nadi-pariksha",
     bookingWindowDays: 7,
     // Doctors, fees and slots come from I AM. Code confirmed on the staging key (GET /centres/).

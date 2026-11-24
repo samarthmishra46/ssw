@@ -11,21 +11,6 @@ export const EXTEND_WHEN_LEFT_MS = 5 * MIN;
 export const EXTEND_BY_SECONDS = 5 * 60;
 
 /**
- * Board section 5: checkout recovery, consented leads only.
- * `close` runs after the final reminder if nothing happened.
- * The 24 h wait before closing is our assumption (the board does not give one).
- */
-export const RECOVERY_STEPS = [
-  { step: "resume", offsetMs: 0, template: "resume_payment" },
-  { step: "explainer", offsetMs: 2 * HOUR, template: "consult_explainer" },
-  { step: "trust", offsetMs: 24 * HOUR, template: "trust_faq" },
-  { step: "final", offsetMs: 48 * HOUR, template: "final_reminder" },
-  { step: "close", offsetMs: 72 * HOUR, template: null },
-] as const;
-
-export type RecoveryStep = (typeof RECOVERY_STEPS)[number]["step"];
-
-/**
  * Board section 8 (WhatsApp part, phase 1): reminder times for a slot.
  * - 24 h before the slot, if that is still in the future
  * - morning of the visit at 8 am IST, if that is in the future and before the slot

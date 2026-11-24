@@ -47,10 +47,6 @@ export function centreOwnerId(centre: Centre): string | null {
   return process.env[`SLIXTA_OWNER_ID_${centre.code}`] ?? centre.slixtaOwnerId;
 }
 
-export function centreTelecallerId(centre: Centre): string | null {
-  return process.env[`SLIXTA_TELECALLER_ID_${centre.code}`] ?? centre.slixtaTelecallerId ?? centreOwnerId(centre);
-}
-
 export function allowMockPayments(): boolean {
   if (process.env.ALLOW_MOCK_PAYMENTS === "1") return true;
   if (process.env.ALLOW_MOCK_PAYMENTS === "0") return false;

@@ -9,5 +9,5 @@ export const GET = route(async () => {
   const db = await getDb();
   await db.execute(sql`select 1`);
   const i = integrations();
-  return { ok: true, slixta: i.slixta.mode, calendar: i.calendar.mode, payments: i.payments.mode, whatsapp: i.whatsappMode, meta: i.meta.mode };
+  return { ok: true, slixta: i.slixta.mode, calendar: i.calendar.mode, payments: i.payments.mode, meta: i.meta.mode };
 });

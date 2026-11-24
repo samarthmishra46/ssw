@@ -4,21 +4,29 @@ import { z } from "zod";
 
 export const LANGUAGES = ["Gujarati", "Hindi", "English"] as const;
 
+/** Tracking values are cut to length, never rejected: a long ad link must not block a lead. */
+const clipped = (max: number) =>
+  z
+    .unknown()
+    .transform((v) => (typeof v === "string" ? v.slice(0, max) : undefined))
+    .optional();
+
 export const attributionSchema = z
   .object({
-    utm_source: z.string().max(200).optional(),
-    utm_medium: z.string().max(200).optional(),
-    utm_campaign: z.string().max(200).optional(),
-    utm_content: z.string().max(200).optional(),
-    utm_term: z.string().max(200).optional(),
-    fbclid: z.string().max(500).optional(),
-    gclid: z.string().max(500).optional(),
-    fbc: z.string().max(500).optional(),
-    fbp: z.string().max(500).optional(),
-    landing_url: z.string().max(500).optional(),
-    referrer: z.string().max(500).optional(),
+    utm_source: clipped(200),
+    utm_medium: clipped(200),
+    utm_campaign: clipped(200),
+    utm_content: clipped(200),
+    utm_term: clipped(200),
+    fbclid: clipped(500),
+    gclid: clipped(500),
+    fbc: clipped(500),
+    fbp: clipped(500),
+    landing_url: clipped(500),
+    referrer: clipped(500),
   })
-  .partial();
+  .partial()
+  .catch({});
 
 export type Attribution = z.infer<typeof attributionSchema>;
 

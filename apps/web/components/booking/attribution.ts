@@ -27,7 +27,7 @@ export function captureAttribution(): Record<string, string> {
   }
   const hasUrl = Object.keys(fromUrl).length > 0;
   const attr: Record<string, string> = hasUrl
-    ? { ...fromUrl, landing_url: url.pathname + url.search, referrer: document.referrer.slice(0, 500) }
+    ? { ...fromUrl, landing_url: (url.pathname + url.search).slice(0, 500), referrer: document.referrer.slice(0, 500) }
     : { ...saved };
   if (!attr.landing_url) attr.landing_url = url.pathname;
   if (!attr.referrer && document.referrer) attr.referrer = document.referrer.slice(0, 500);

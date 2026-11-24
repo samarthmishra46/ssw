@@ -33,13 +33,15 @@ Any mismatch opens a **Payment Issue** instead of confirming. Webhooks are proce
 
 ### Reconciliation (board sections 11, 12)
 
-- **Daily**: list yesterday's payments from the Razorpay API and match each to an appointment, a calendar booking and a Slixta appointment. Gaps open Payment Issues.
+- **Daily**: list yesterday's payments from the Razorpay API and match each to an appointment and a calendar booking. Gaps open Payment Issues.
 - **Weekly**: match the settlement log to Razorpay settlement reports for sign-off by accounts.
 - **Technical reversals**: refund through the Razorpay API only after the operations owner approves it in the Payment Issue.
 
 ---
 
 ## 2. WhatsApp Business API + the client's AI bot (board 2B)
+
+> **On hold (24 Nov 2026).** Slixta will not forward inbound messages or offer send APIs for now; all WhatsApp messages are Slixta workflows (docs/02). This section and the template list below describe the earlier plan and need a fresh design with Slixta before phase 2.
 
 The brand's WhatsApp number is connected **inside Slixta** (decided 13 Nov 2026). Slixta forwards inbound messages to us as `whatsapp.message_received` webhooks, and we send through Slixta's template and session-message APIs (doc 02, endpoints 13 and 14).
 

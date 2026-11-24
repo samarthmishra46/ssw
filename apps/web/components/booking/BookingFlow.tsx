@@ -34,6 +34,14 @@ type Doctor = {
 
 const MODE_LABEL: Record<Mode, string> = { offline: "At the centre", online: "Online video call" };
 
+/** "+91 98765 43210", "098765 43210" or "9876543210" -> "9876543210"; null if it isn't 10 digits. */
+function toMobile10(raw: string): string | null {
+  let d = raw.replace(/\D/g, "");
+  if (d.length === 12 && d.startsWith("91")) d = d.slice(2);
+  else if (d.length === 11 && d.startsWith("0")) d = d.slice(1);
+  return /^\d{10}$/.test(d) ? d : null;
+}
+
 /** 2300 -> "23", 4550 -> "45.50" */
 const rupees = (paise: number) => (paise % 100 === 0 ? String(paise / 100) : (paise / 100).toFixed(2));
 
@@ -146,10 +154,22 @@ export function BookingFlow({ centre, programme }: Props) {
   const paying = useRef(false);
 
   const top = useRef<HTMLDivElement>(null);
+  // Steps 2 and 3 (and every result screen) show in a pop-up; step 1 stays on the page.
+  const [popup, setPopup] = useState(false);
+  const popupRef = useRef<HTMLDivElement>(null);
+  const popupBody = useRef<HTMLDivElement>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
+
   const go = useCallback((s: Screen) => {
     setError(null);
     setScreen(s);
-    top.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    if (s === "s1") {
+      setPopup(false);
+      top.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    } else {
+      setPopup(true);
+      popupBody.current?.scrollTo({ top: 0 });
+    }
   }, []);
 
   const loadSlots = useCallback(async (t: string, doctor?: string | null, m?: Mode | null) => {
@@ -209,6 +229,7 @@ export function BookingFlow({ centre, programme }: Props) {
       if (opts.resume && next === "expired") next = "s2"; // resume links go straight to choosing a time
       if (next === "s2") void startStep2(t);
       setScreen(next);
+      setPopup(next !== "s1");
     },
     [startStep2],
   );
@@ -228,6 +249,8 @@ export function BookingFlow({ centre, programme }: Props) {
         setToken(t);
         store(storageKey, t);
         applyStatus(s, t, { resume: true });
+        // A plain reload after the booking ended shows the summary on the card, not the pop-up.
+        if (!fromLink && ["done", "expired", "expiredpaid"].includes(s.screen)) setPopup(false);
       } catch {
         store(storageKey, null);
       }
@@ -244,6 +267,49 @@ export function BookingFlow({ centre, programme }: Props) {
     return () => window.removeEventListener("ssw:pick-who", onPick);
   }, [programme.who]);
 
+  // Pop-up: lock page scroll, move focus in, and give it back to the page when it closes.
+  useEffect(() => {
+    if (!popup) return;
+    returnFocus.current = document.activeElement as HTMLElement | null;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    popupRef.current?.focus();
+    // On the document, not the pop-up: when a step changes, the focused button disappears and
+    // focus falls back to <body>, where a handler on the pop-up would never see the key.
+    const onKey = (e: KeyboardEvent) => {
+      const box = popupRef.current;
+      if (!box) return;
+      if (e.key === "Escape") {
+        setPopup(false);
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const items = box.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (items.length === 0) return;
+      const first = items[0]!;
+      const last = items[items.length - 1]!;
+      const active = document.activeElement;
+      if (!box.contains(active)) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+      } else if (e.shiftKey && (active === first || active === box)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = overflow;
+      returnFocus.current?.focus?.();
+    };
+  }, [popup]);
+
   // Display-only countdown: the server timer is the source of truth.
   useEffect(() => {
     if (!holdUntil || !["s3", "failed"].includes(screen)) return;
@@ -254,7 +320,8 @@ export function BookingFlow({ centre, programme }: Props) {
 
   // ---------------- Step 1 ----------------
   async function submitDetails() {
-    const ok = name.trim().length >= 2 && /^\d{10}$/.test(mobile.trim()) && consent && (who === "Myself" || theirName.trim().length >= 2);
+    const mobile10 = toMobile10(mobile);
+    const ok = name.trim().length >= 2 && mobile10 !== null && consent && (who === "Myself" || theirName.trim().length >= 2);
     if (!ok) {
       setError(
         who !== "Myself" && theirName.trim().length < 2
@@ -275,7 +342,7 @@ export function BookingFlow({ centre, programme }: Props) {
           name: name.trim(),
           theirName: who === "Myself" ? "" : theirName.trim(),
           isAdult: adult === "Yes",
-          mobile: mobile.trim(),
+          mobile: mobile10,
           email: email.trim(),
           language,
           consent: true,
@@ -445,6 +512,7 @@ export function BookingFlow({ centre, programme }: Props) {
   }
 
   function startOver() {
+    if (token && screen !== "done") void api("/api/holds/release", { method: "POST", body: { token } }).catch(() => {});
     store(storageKey, null);
     setToken(null);
     setRef("");
@@ -467,392 +535,456 @@ export function BookingFlow({ centre, programme }: Props) {
   const fee = amountPaise != null ? rupees(amountPaise) : null;
   const showTimes = doctors === null || !!doctor;
 
+  const stepper = inForm && (
+    <div className="stepper">
+      <span className={screen === "s1" ? "on" : ""}>1 · Your details</span>
+      <span className={screen === "s2" ? "on" : ""}>2 · {doctors ? "Doctor and time" : "Day and time"}</span>
+      <span className={screen === "s3" ? "on" : ""}>3 · Pay</span>
+    </div>
+  );
+
   return (
-    <div className="card" id="flow" ref={top} aria-live="polite">
-      {inForm && (
-        <div className="stepper">
-          <span className={screen === "s1" ? "on" : ""}>1 · Your details</span>
-          <span className={screen === "s2" ? "on" : ""}>2 · {doctors ? "Doctor and time" : "Day and time"}</span>
-          <span className={screen === "s3" ? "on" : ""}>3 · Pay</span>
-        </div>
-      )}
+    <>
+      {/* inert while the pop-up is open: keyboard and screen readers stay inside the pop-up. */}
+      <div className="card" id="flow" ref={top} aria-live="polite" inert={popup && screen !== "s1"}>
+        {screen === "s1" && stepper}
 
-      {screen === "s1" && (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void submitDetails();
-          }}
-          noValidate
-        >
-          <label htmlFor="who">Who is the consultation for?</label>
-          <select id="who" value={who} onChange={(e) => setWho(e.target.value)}>
-            {programme.who.map((w) => (
-              <option key={w}>{w}</option>
-            ))}
-          </select>
-          <label htmlFor="nm">Your name</label>
-          <input id="nm" type="text" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
-          {who !== "Myself" && (
-            <>
-              <label htmlFor="their">Their name</label>
-              <input id="their" type="text" value={theirName} onChange={(e) => setTheirName(e.target.value)} />
-            </>
-          )}
-          <label htmlFor="adult">Is the person attending 18 or older?</label>
-          <select id="adult" value={adult} onChange={(e) => setAdult(e.target.value)}>
-            <option>Yes</option>
-            <option>No</option>
-          </select>
-          {adult === "No" && (
-            <p className="small" style={{ margin: "8px 0 0" }}>
-              A parent or guardian needs to be with them throughout the consultation.
-            </p>
-          )}
-          <label htmlFor="mob">Mobile number (WhatsApp)</label>
-          <input
-            id="mob"
-            type="tel"
-            inputMode="numeric"
-            maxLength={10}
-            autoComplete="tel-national"
-            value={mobile}
-            onChange={(e) => setMobile(e.target.value.replace(/\D/g, ""))}
-          />
-          <label htmlFor="em">Email (optional, for your receipt)</label>
-          <input id="em" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-          <label htmlFor="lang">Preferred language for the consultation</label>
-          <select id="lang" value={language} onChange={(e) => setLanguage(e.target.value as (typeof LANGUAGES)[number])}>
-            {LANGUAGES.map((l) => (
-              <option key={l}>{l}</option>
-            ))}
-          </select>
-          <div className="honeypot" aria-hidden="true">
-            <label htmlFor="company">Company</label>
-            <input id="company" type="text" tabIndex={-1} autoComplete="off" value={company} onChange={(e) => setCompany(e.target.value)} />
-          </div>
-          <label className="check">
-            <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
-            <span>
-              I agree to Sri Sri Wellbeing using these details to arrange my consultation, and to contact me about this booking on
-              WhatsApp or by phone, as described in the <Link href="/privacy">Privacy Policy</Link>.
-            </span>
-          </label>
-          {who !== "Myself" && (
-            <p className="small" style={{ margin: "8px 0 0 28px" }}>
-              I confirm I have their permission to share their details.
-            </p>
-          )}
-          {error && <div className="err">{error}</div>}
-          <p style={{ margin: "18px 0 0" }}>
-            <button className="btn" type="submit" disabled={busy}>
-              {busy ? "Saving…" : "Continue"}
-            </button>
-          </p>
-        </form>
-      )}
-
-      {screen === "s2" && (
-        <div>
-          {doctors === undefined && <p className="loading">Loading doctors…</p>}
-          {doctors && doctors.length === 0 && (
-            <p className="loading">
-              No doctors are taking bookings right now. Please call reception on {centre.receptionPhone} or ask us on WhatsApp.
-            </p>
-          )}
-          {doctors && doctors.length > 0 && (
-            <>
-              <span className="label">Doctor</span>
-              <div className="doctors" role="group" aria-label="Doctor">
-                {doctors.map((d) => (
-                  <button
-                    key={d.id}
-                    type="button"
-                    className="doc"
-                    aria-pressed={doctorId === d.id}
-                    onClick={() => token && pickDoctor(token, d, mode ?? undefined)}
-                  >
-                    <span className="doc-top">
-                      <span className="doc-name">{d.name}</span>
-                      <span className="doc-fee">₹{rupees(d.feePaise)}</span>
-                    </span>
-                    {d.specialities.length > 0 && <span className="doc-meta">{d.specialities.join(", ")}</span>}
-                    <span className="doc-meta">
-                      {[
-                        d.yearsExperience ? `${d.yearsExperience} years' experience` : null,
-                        d.languages.length > 0 ? d.languages.join(", ") : null,
-                        d.modes.map((m) => MODE_LABEL[m]).join(" · "),
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </span>
-                  </button>
-                ))}
-              </div>
-              {doctor && doctor.modes.length > 1 && (
-                <>
-                  <span className="label">How would you like to meet?</span>
-                  <div className="chips" role="group" aria-label="Consultation type">
-                    {doctor.modes.map((m) => (
-                      <button
-                        key={m}
-                        type="button"
-                        className="chip"
-                        aria-pressed={mode === m}
-                        onClick={() => token && pickDoctor(token, doctor, m)}
-                      >
-                        {MODE_LABEL[m]}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </>
-          )}
-
-          {showTimes && (
-            <>
-              <span className="label">Day</span>
-              {days === null ? (
-                <p className="loading">Loading available times…</p>
-              ) : days.every((d) => d.slots.length === 0) ? (
-                <p className="loading">
-                  {doctor ? `${doctor.name} has no free times in the next few days. Please choose another doctor, or ` : "No times are open in the next few days. Please "}
-                  call reception on {centre.receptionPhone} or ask us on WhatsApp.
+        {screen !== "s1" && (
+          <div className="bk-progress">
+            {screen === "done" ? (
+              <>
+                <h3>You&apos;re booked{firstName ? `, ${firstName}` : ""}.</h3>
+                <p>
+                  {when}
+                  {heldDoctor ? ` with ${heldDoctor}` : ""}. Booking reference: <b>{ref}</b>.
                 </p>
-              ) : (
-                <>
-                  <div className="chips" role="group" aria-label="Day">
-                    {days.map((d) => (
-                      <button
-                        key={d.date}
-                        type="button"
-                        className="chip"
-                        aria-pressed={day === d.date}
-                        disabled={d.slots.length === 0}
-                        aria-label={d.label}
-                        onClick={() => {
-                          setDay(d.date);
-                          setSlotId(null);
-                        }}
-                      >
-                        {d.weekday}
-                        <small>{d.dayMonth}</small>
-                      </button>
-                    ))}
-                  </div>
-                  <span className="label">Time</span>
-                  <div className="chips" role="group" aria-label="Time">
-                    {currentDay?.slots.map((x) => (
-                      <button key={x.slotId} type="button" className="chip" aria-pressed={slotId === x.slotId} onClick={() => setSlotId(x.slotId)}>
-                        {x.time}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </>
-          )}
-
-          {needsEmail && (
-            <>
-              <label htmlFor="appem">Email for the I AM app</label>
-              <input id="appem" type="email" autoComplete="email" value={appEmail} onChange={(e) => setAppEmail(e.target.value)} />
-              <p className="small" style={{ margin: "6px 0 0" }}>
-                Online consultations happen in the I AM app. You&apos;ll sign in with this email.
-              </p>
-            </>
-          )}
-          <p className="small" style={{ margin: "12px 0 0" }}>
-            We&apos;ll hold this time for 15 minutes while you pay.
-          </p>
-          {error && <div className="err">{error}</div>}
-          <p style={{ margin: "18px 0 0" }}>
-            <button className="btn" type="button" disabled={busy || !slotId} onClick={() => void holdTime()}>
-              {busy ? "Holding your time…" : chosenSlot ? `Continue to pay ₹${rupees(chosenSlot.feePaise)}` : "Continue to payment"}
-            </button>
-          </p>
-          <p style={{ margin: "10px 0 0" }}>
-            <button type="button" className="linklike small" onClick={() => go("s1")}>
-              Back to your details
-            </button>
-          </p>
-        </div>
-      )}
-
-      {screen === "s3" && (
-        <div>
-          <div className="summary">
-            <div>
-              Nadi Pariksha consultation{heldDoctor ? ` with ${heldDoctor}` : ""} · {heldMode === "online" ? MODE_LABEL.online : centre.name}
-            </div>
-            <div>{when}</div>
-            <div className="amt">
-              ₹{fee} <span className="small ph">inclusive of all taxes (to be confirmed)</span>
-            </div>
-          </div>
-          {holdUntil && (
-            <p className="small" style={{ margin: "8px 0 0" }}>
-              Held for you until {fmtTime(holdUntil)}.
-            </p>
-          )}
-          <label className="check">
-            <input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} />
-            <span>
-              I agree to the <Link href="/terms">Terms</Link> and the <Link href="/refund-policy">Refund and Rescheduling Policy</Link>.
-            </span>
-          </label>
-          <label className="check">
-            <input type="checkbox" checked={promo} onChange={(e) => setPromo(e.target.checked)} />
-            <span>Send me occasional wellbeing updates from Sri Sri Wellbeing on WhatsApp. (Optional)</span>
-          </label>
-          <p className="small" style={{ margin: "14px 0 0" }}>
-            We&apos;ll send your booking confirmation and reminders to this number on WhatsApp, and we may call to confirm your
-            appointment.
-          </p>
-          <p className="small" style={{ margin: "10px 0 0" }}>
-            The ₹{fee} fee is non-refundable once your booking is confirmed. To change your time, call reception on{" "}
-            {centre.receptionPhone}. If a technical problem means you were charged twice, or you paid and we can&apos;t offer you a
-            slot, the amount is returned to you.
-          </p>
-          {error && <div className="err">{error}</div>}
-          {!mockOrder && (
-            <p style={{ margin: "18px 0 0" }}>
-              <button className="btn" type="button" disabled={busy} onClick={() => void pay()}>
-                {busy ? "Opening payment…" : `Pay ₹${fee} and confirm`}
+              </>
+            ) : (
+              <>
+                <h3>{screen === "wait" || screen === "waitlong" ? "Confirming your payment" : "Your booking isn't finished yet."}</h3>
+                {holdUntil && (screen === "s3" || screen === "failed") && <p>Your time is held until {fmtTime(holdUntil)}.</p>}
+              </>
+            )}
+            <p style={{ margin: "14px 0 0" }}>
+              <button className="btn" type="button" onClick={() => setPopup(true)}>
+                {screen === "done" ? "View booking" : "Continue booking"}
               </button>
             </p>
-          )}
-          {mockOrder && (
-            <div className="mockpay">
-              <strong>Test mode:</strong> Razorpay keys are not set, so no money is taken. Choose an outcome:
-              <div className="row">
-                <button className="btn" type="button" disabled={busy} onClick={() => void mockPay("success")}>
-                  Payment succeeds
-                </button>
-                <button className="btn ghost" type="button" disabled={busy} onClick={() => void mockPay("fail")}>
-                  Payment fails
-                </button>
-              </div>
+            <p style={{ margin: "10px 0 0" }}>
+              <button type="button" className="linklike small" onClick={startOver}>
+                {screen === "done" ? "Book another consultation" : "Start again"}
+              </button>
+            </p>
+          </div>
+        )}
+
+        {screen === "s1" && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void submitDetails();
+            }}
+            noValidate
+          >
+            <label htmlFor="who">Who is the consultation for?</label>
+            <select id="who" value={who} onChange={(e) => setWho(e.target.value)}>
+              {programme.who.map((w) => (
+                <option key={w}>{w}</option>
+              ))}
+            </select>
+            <label htmlFor="nm">Your name</label>
+            <input id="nm" type="text" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
+            {who !== "Myself" && (
+              <>
+                <label htmlFor="their">Their name</label>
+                <input id="their" type="text" value={theirName} onChange={(e) => setTheirName(e.target.value)} />
+              </>
+            )}
+            <label htmlFor="adult">Is the person attending 18 or older?</label>
+            <select id="adult" value={adult} onChange={(e) => setAdult(e.target.value)}>
+              <option>Yes</option>
+              <option>No</option>
+            </select>
+            {adult === "No" && (
+              <p className="small" style={{ margin: "8px 0 0" }}>
+                A parent or guardian needs to be with them throughout the consultation.
+              </p>
+            )}
+            <label htmlFor="mob">Mobile number (WhatsApp)</label>
+            <input
+              id="mob"
+              type="tel"
+              inputMode="numeric"
+              autoComplete="tel-national"
+              value={mobile}
+              // Keep up to 12 digits so a pasted or autofilled "+91 98765 43210" survives; see toMobile10.
+              onChange={(e) => setMobile(e.target.value.replace(/\D/g, "").slice(0, 12))}
+              onBlur={() => setMobile((m) => toMobile10(m) ?? m)}
+            />
+            <label htmlFor="em">Email (optional, for your receipt)</label>
+            <input id="em" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <label htmlFor="lang">Preferred language for the consultation</label>
+            <select id="lang" value={language} onChange={(e) => setLanguage(e.target.value as (typeof LANGUAGES)[number])}>
+              {LANGUAGES.map((l) => (
+                <option key={l}>{l}</option>
+              ))}
+            </select>
+            <div className="honeypot" aria-hidden="true">
+              {/* Neutral name and label: browsers autofill anything that looks like "company". */}
+              <label htmlFor="hp-extra">Leave this field empty</label>
+              <input id="hp-extra" name="hp-extra" type="text" tabIndex={-1} autoComplete="off" value={company} onChange={(e) => setCompany(e.target.value)} />
             </div>
-          )}
-          <p className="small" style={{ margin: "10px 0 0" }}>
-            Secure payment through Razorpay by UPI, card or net banking. Your slot is held for 15 minutes while you pay.
-          </p>
-          <p style={{ margin: "10px 0 0" }}>
-            <button type="button" className="linklike small" onClick={() => void changeTime()}>
-              Change day or time
-            </button>
-          </p>
-        </div>
-      )}
-
-      {screen === "wait" && (
-        <div>
-          <h3>Confirming your payment</h3>
-          <hr className="rule" />
-          <p>This usually takes a few seconds. Please keep this page open.</p>
-        </div>
-      )}
-
-      {screen === "waitlong" && (
-        <div>
-          <h3>We&apos;re still confirming your payment.</h3>
-          <hr className="rule" />
-          <p>Please don&apos;t pay again. If your payment has gone through, your confirmation will reach you on WhatsApp.</p>
-          <p>
-            Booking reference: <b>{ref}</b>. If you don&apos;t hear from us, call reception on {centre.receptionPhone} and quote this
-            reference.
-          </p>
-        </div>
-      )}
-
-      {screen === "done" && (
-        <div>
-          <h3>You&apos;re booked, {firstName || "and all set"}.</h3>
-          <hr className="rule" />
-          {heldMode === "online" ? (
-            <p>
-              {when}, online{heldDoctor ? ` with ${heldDoctor}` : ""}. Download the I AM app and sign in with {email || "the email you gave us"}{" "}
-              (Continue with Google, Sign up, or Forgot password). Your consultation will be waiting in your sessions: join a few
-              minutes before the start.
-            </p>
-          ) : (
-            <p>
-              {when}
-              {heldDoctor ? ` with ${heldDoctor}` : ""} at {centre.name}, {centre.shortAddress}.
-            </p>
-          )}
-          <p>
-            Your confirmation and receipt are on their way to WhatsApp. Booking reference: <b>{ref}</b>.
-          </p>
-          <p style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: 0 }}>
-            {heldMode !== "online" && (
-              <a className="btn ghost" href={centre.mapUrl} target="_blank" rel="noopener">
-                Open in Maps
-              </a>
+            <label className="check">
+              <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
+              <span>
+                I agree to Sri Sri Wellbeing using these details to arrange my consultation, and to contact me about this booking on
+                WhatsApp or by phone, as described in the <Link href="/privacy">Privacy Policy</Link>.
+              </span>
+            </label>
+            {who !== "Myself" && (
+              <p className="small" style={{ margin: "8px 0 0 28px" }}>
+                I confirm I have their permission to share their details.
+              </p>
             )}
-            {token && (
-              <a className="btn ghost" href={`/api/bookings/ics?token=${encodeURIComponent(token)}`}>
-                Add to calendar
-              </a>
-            )}
-          </p>
-          <p style={{ margin: "14px 0 0" }}>
-            <button type="button" className="linklike small" onClick={startOver}>
-              Book another consultation
-            </button>
-          </p>
-        </div>
-      )}
+            {error && <div className="err">{error}</div>}
+            <p style={{ margin: "18px 0 0" }}>
+              <button className="btn" type="submit" disabled={busy}>
+                {busy ? "Saving…" : "Continue"}
+              </button>
+            </p>
+          </form>
+        )}
+      </div>
 
-      {screen === "failed" && (
-        <div>
-          <h3>Your payment didn&apos;t go through.</h3>
-          <hr className="rule" />
-          <p>Your slot is still held. You can try again now.</p>
-          <p>
-            If money has left your account, it will be returned to the same account automatically. You don&apos;t need to do anything.
-          </p>
-          <p style={{ margin: 0 }}>
-            <button className="btn" type="button" onClick={() => go("s3")}>
-              Try again
-            </button>
-          </p>
-        </div>
-      )}
+      {popup && screen !== "s1" && (
+        <div className="bk-overlay">
+          <div className="bk-modal" role="dialog" aria-modal="true" aria-labelledby="bk-title" tabIndex={-1} ref={popupRef}>
+            <div className="bk-head">
+              <h2 id="bk-title">Book your consultation</h2>
+              <button type="button" className="bk-close" aria-label="Close" onClick={() => setPopup(false)}>
+                ×
+              </button>
+            </div>
+            <div className="bk-body" ref={popupBody} aria-live="polite">
+              {stepper}
+              {screen === "s2" && (
+                <div className="bk-centre">
+                  <div>
+                    <span className="k">Centre</span>
+                    <span className="v">
+                      {centre.name}
+                      <small>{centre.shortAddress}</small>
+                    </span>
+                  </div>
+                  <span className="lock">Set for this page</span>
+                </div>
+              )}
 
-      {screen === "expired" && (
-        <div>
-          <h3>This slot is no longer held.</h3>
-          <hr className="rule" />
-          <p>Please choose a time again.</p>
-          <p style={{ margin: 0 }}>
-            <button
-              className="btn"
-              type="button"
-              onClick={() => {
-                go("s2");
-                if (token) void startStep2(token);
-              }}
-            >
-              Choose a time
-            </button>
-          </p>
-        </div>
-      )}
+              {screen === "s2" && (
+                <div>
+                  {doctors === undefined && <p className="loading">Loading doctors…</p>}
+                  {doctors && doctors.length === 0 && (
+                    <p className="loading">
+                      No doctors are taking bookings right now. Please call reception on {centre.receptionPhone} or ask us on WhatsApp.
+                    </p>
+                  )}
+                  {doctors && doctors.length > 0 && (
+                    <>
+                      <span className="label">Doctor</span>
+                      <div className="doctors" role="group" aria-label="Doctor">
+                        {doctors.map((d) => (
+                          <button
+                            key={d.id}
+                            type="button"
+                            className="doc"
+                            aria-pressed={doctorId === d.id}
+                            onClick={() => token && pickDoctor(token, d, mode ?? undefined)}
+                          >
+                            <span className="doc-top">
+                              <span className="doc-name">{d.name}</span>
+                              <span className="doc-fee">₹{rupees(d.feePaise)}</span>
+                            </span>
+                            {d.specialities.length > 0 && <span className="doc-meta">{d.specialities.join(", ")}</span>}
+                            <span className="doc-meta">
+                              {[
+                                d.yearsExperience ? `${d.yearsExperience} years' experience` : null,
+                                d.languages.length > 0 ? d.languages.join(", ") : null,
+                                d.modes.map((m) => MODE_LABEL[m]).join(" · "),
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                      {doctor && doctor.modes.length > 1 && (
+                        <>
+                          <span className="label">How would you like to meet?</span>
+                          <div className="chips" role="group" aria-label="Consultation type">
+                            {doctor.modes.map((m) => (
+                              <button
+                                key={m}
+                                type="button"
+                                className="chip"
+                                aria-pressed={mode === m}
+                                onClick={() => token && pickDoctor(token, doctor, m)}
+                              >
+                                {MODE_LABEL[m]}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )}
 
-      {screen === "expiredpaid" && (
-        <div>
-          <h3>We couldn&apos;t confirm your payment in time.</h3>
-          <hr className="rule" />
-          <p>The time you chose is no longer held. Please don&apos;t pay again yet.</p>
-          <p>
-            If money has left your account, call reception on {centre.receptionPhone} and quote booking reference <b>{ref}</b>.
-            We&apos;ll arrange your consultation, or return the amount if we can&apos;t offer you a slot.
-          </p>
+                  {showTimes && (
+                    <>
+                      <span className="label">Day</span>
+                      {days === null ? (
+                        <p className="loading">Loading available times…</p>
+                      ) : days.every((d) => d.slots.length === 0) ? (
+                        <p className="loading">
+                          {doctor ? `${doctor.name} has no free times in the next few days. Please choose another doctor, or ` : "No times are open in the next few days. Please "}
+                          call reception on {centre.receptionPhone} or ask us on WhatsApp.
+                        </p>
+                      ) : (
+                        <>
+                          <div className="chips" role="group" aria-label="Day">
+                            {days.map((d) => (
+                              <button
+                                key={d.date}
+                                type="button"
+                                className="chip"
+                                aria-pressed={day === d.date}
+                                disabled={d.slots.length === 0}
+                                aria-label={d.label}
+                                onClick={() => {
+                                  setDay(d.date);
+                                  setSlotId(null);
+                                }}
+                              >
+                                {d.weekday}
+                                <small>{d.dayMonth}</small>
+                              </button>
+                            ))}
+                          </div>
+                          <span className="label">Time</span>
+                          <div className="chips" role="group" aria-label="Time">
+                            {currentDay?.slots.map((x) => (
+                              <button key={x.slotId} type="button" className="chip" aria-pressed={slotId === x.slotId} onClick={() => setSlotId(x.slotId)}>
+                                {x.time}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )}
+
+                  {needsEmail && (
+                    <>
+                      <label htmlFor="appem">Email for the I AM app</label>
+                      <input id="appem" type="email" autoComplete="email" value={appEmail} onChange={(e) => setAppEmail(e.target.value)} />
+                      <p className="small" style={{ margin: "6px 0 0" }}>
+                        Online consultations happen in the I AM app. You&apos;ll sign in with this email.
+                      </p>
+                    </>
+                  )}
+                  <p className="small" style={{ margin: "12px 0 0" }}>
+                    We&apos;ll hold this time for 15 minutes while you pay.
+                  </p>
+                  {error && <div className="err">{error}</div>}
+                  <p style={{ margin: "18px 0 0" }}>
+                    <button className="btn" type="button" disabled={busy || !slotId} onClick={() => void holdTime()}>
+                      {busy ? "Holding your time…" : chosenSlot ? `Continue to pay ₹${rupees(chosenSlot.feePaise)}` : "Continue to payment"}
+                    </button>
+                  </p>
+                  <p style={{ margin: "10px 0 0" }}>
+                    <button type="button" className="linklike small" onClick={() => go("s1")}>
+                      Back to your details
+                    </button>
+                  </p>
+                </div>
+              )}
+
+              {screen === "s3" && (
+                <div>
+                  <div className="summary">
+                    <div>
+                      Nadi Pariksha consultation{heldDoctor ? ` with ${heldDoctor}` : ""} · {heldMode === "online" ? MODE_LABEL.online : centre.name}
+                    </div>
+                    <div>{when}</div>
+                    <div className="amt">
+                      ₹{fee} <span className="small ph">inclusive of all taxes (to be confirmed)</span>
+                    </div>
+                  </div>
+                  {holdUntil && (
+                    <p className="small" style={{ margin: "8px 0 0" }}>
+                      Held for you until {fmtTime(holdUntil)}.
+                    </p>
+                  )}
+                  <label className="check">
+                    <input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} />
+                    <span>
+                      I agree to the <Link href="/terms">Terms</Link> and the <Link href="/refund-policy">Refund and Rescheduling Policy</Link>.
+                    </span>
+                  </label>
+                  <label className="check">
+                    <input type="checkbox" checked={promo} onChange={(e) => setPromo(e.target.checked)} />
+                    <span>Send me occasional wellbeing updates from Sri Sri Wellbeing on WhatsApp. (Optional)</span>
+                  </label>
+                  <p className="small" style={{ margin: "14px 0 0" }}>
+                    We&apos;ll send your booking confirmation and reminders to this number on WhatsApp, and we may call to confirm your
+                    appointment.
+                  </p>
+                  <p className="small" style={{ margin: "10px 0 0" }}>
+                    The ₹{fee} fee is non-refundable once your booking is confirmed. To change your time, call reception on{" "}
+                    {centre.receptionPhone}. If a technical problem means you were charged twice, or you paid and we can&apos;t offer you a
+                    slot, the amount is returned to you.
+                  </p>
+                  {error && <div className="err">{error}</div>}
+                  {!mockOrder && (
+                    <p style={{ margin: "18px 0 0" }}>
+                      <button className="btn" type="button" disabled={busy} onClick={() => void pay()}>
+                        {busy ? "Opening payment…" : `Pay ₹${fee} and confirm`}
+                      </button>
+                    </p>
+                  )}
+                  {mockOrder && (
+                    <div className="mockpay">
+                      <strong>Test mode:</strong> Razorpay keys are not set, so no money is taken. Choose an outcome:
+                      <div className="row">
+                        <button className="btn" type="button" disabled={busy} onClick={() => void mockPay("success")}>
+                          Payment succeeds
+                        </button>
+                        <button className="btn ghost" type="button" disabled={busy} onClick={() => void mockPay("fail")}>
+                          Payment fails
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  <p className="small" style={{ margin: "10px 0 0" }}>
+                    Secure payment through Razorpay by UPI, card or net banking. Your slot is held for 15 minutes while you pay.
+                  </p>
+                  <p style={{ margin: "10px 0 0" }}>
+                    <button type="button" className="linklike small" onClick={() => void changeTime()}>
+                      Change day or time
+                    </button>
+                  </p>
+                </div>
+              )}
+
+              {screen === "wait" && (
+                <div>
+                  <h3>Confirming your payment</h3>
+                  <hr className="rule" />
+                  <p>This usually takes a few seconds. Please keep this page open.</p>
+                </div>
+              )}
+
+              {screen === "waitlong" && (
+                <div>
+                  <h3>We&apos;re still confirming your payment.</h3>
+                  <hr className="rule" />
+                  <p>Please don&apos;t pay again. If your payment has gone through, your confirmation will reach you on WhatsApp.</p>
+                  <p>
+                    Booking reference: <b>{ref}</b>. If you don&apos;t hear from us, call reception on {centre.receptionPhone} and quote this
+                    reference.
+                  </p>
+                </div>
+              )}
+
+              {screen === "done" && (
+                <div>
+                  <h3>You&apos;re booked, {firstName || "and all set"}.</h3>
+                  <hr className="rule" />
+                  {heldMode === "online" ? (
+                    <p>
+                      {when}, online{heldDoctor ? ` with ${heldDoctor}` : ""}. Download the I AM app and sign in with {email || "the email you gave us"}{" "}
+                      (Continue with Google, Sign up, or Forgot password). Your consultation will be waiting in your sessions: join a few
+                      minutes before the start.
+                    </p>
+                  ) : (
+                    <p>
+                      {when}
+                      {heldDoctor ? ` with ${heldDoctor}` : ""} at {centre.name}, {centre.shortAddress}.
+                    </p>
+                  )}
+                  <p>
+                    Your confirmation and receipt are on their way to WhatsApp. Booking reference: <b>{ref}</b>.
+                  </p>
+                  <p style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: 0 }}>
+                    {heldMode !== "online" && (
+                      <a className="btn ghost" href={centre.mapUrl} target="_blank" rel="noopener">
+                        Open in Maps
+                      </a>
+                    )}
+                    {token && (
+                      <a className="btn ghost" href={`/api/bookings/ics?token=${encodeURIComponent(token)}`}>
+                        Add to calendar
+                      </a>
+                    )}
+                  </p>
+                  <p style={{ margin: "14px 0 0" }}>
+                    <button type="button" className="linklike small" onClick={startOver}>
+                      Book another consultation
+                    </button>
+                  </p>
+                </div>
+              )}
+
+              {screen === "failed" && (
+                <div>
+                  <h3>Your payment didn&apos;t go through.</h3>
+                  <hr className="rule" />
+                  <p>Your slot is still held. You can try again now.</p>
+                  <p>
+                    If money has left your account, it will be returned to the same account automatically. You don&apos;t need to do anything.
+                  </p>
+                  <p style={{ margin: 0 }}>
+                    <button className="btn" type="button" onClick={() => go("s3")}>
+                      Try again
+                    </button>
+                  </p>
+                </div>
+              )}
+
+              {screen === "expired" && (
+                <div>
+                  <h3>This slot is no longer held.</h3>
+                  <hr className="rule" />
+                  <p>Please choose a time again.</p>
+                  <p style={{ margin: 0 }}>
+                    <button
+                      className="btn"
+                      type="button"
+                      onClick={() => {
+                        go("s2");
+                        if (token) void startStep2(token);
+                      }}
+                    >
+                      Choose a time
+                    </button>
+                  </p>
+                </div>
+              )}
+
+              {screen === "expiredpaid" && (
+                <div>
+                  <h3>We couldn&apos;t confirm your payment in time.</h3>
+                  <hr className="rule" />
+                  <p>The time you chose is no longer held. Please don&apos;t pay again yet.</p>
+                  <p>
+                    If money has left your account, call reception on {centre.receptionPhone} and quote booking reference <b>{ref}</b>.
+                    We&apos;ll arrange your consultation, or return the amount if we can&apos;t offer you a slot.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

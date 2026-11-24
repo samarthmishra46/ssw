@@ -17,9 +17,8 @@ export type Centre = {
   mapUrl: string;
   feeInr: number;
   languages: readonly string[];
-  /** Slixta user IDs. Overridable per environment with SLIXTA_OWNER_ID_<CODE> / SLIXTA_TELECALLER_ID_<CODE>. */
+  /** Centre owner kept on our own contact record. Overridable per environment with SLIXTA_OWNER_ID_<CODE>. */
   slixtaOwnerId: string | null;
-  slixtaTelecallerId: string | null;
   calendarService: string;
   /** Booking window shown on the landing page. */
   bookingWindowDays: number;

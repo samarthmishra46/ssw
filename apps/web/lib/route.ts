@@ -1,10 +1,28 @@
-import { NextResponse, type NextRequest } from "next/server";
-import { FunnelError, type RequestMeta } from "@ssw/funnel";
+import { after, NextResponse, type NextRequest } from "next/server";
+import { FunnelError, runDueJobs, type RequestMeta } from "@ssw/funnel";
 import { ZodError } from "zod";
+
+/**
+ * Jobs this request queued (the Slixta lead, APPOINTMENT BOOKED, Meta events) run right after the
+ * response is sent, so on Vercel they don't wait for the next cron tick. Any other due job (the
+ * 15-minute timer) is picked up too. Two runners never take the same job (see jobs/queue.ts).
+ * AWS (QUEUE_DRIVER=sqs) triggers jobs through SQS instead.
+ */
+function runJobsAfterResponse(req: NextRequest) {
+  if (req.method === "GET" || (process.env.QUEUE_DRIVER ?? "postgres") !== "postgres") return;
+  after(async () => {
+    try {
+      await runDueJobs({ maxJobs: 25 });
+    } catch (err) {
+      console.error("[jobs] run after response failed", err);
+    }
+  });
+}
 
 /** Wraps an API route: JSON in/out, FunnelError -> its status, anything else -> 500 (logged). */
 export function route<C = unknown>(fn: (req: NextRequest, ctx: C) => Promise<unknown>) {
   return async (req: NextRequest, ctx: C) => {
+    runJobsAfterResponse(req);
     try {
       const result = await fn(req, ctx);
       if (result instanceof Response) return result;

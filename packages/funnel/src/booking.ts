@@ -17,15 +17,13 @@ import {
   type DetailsInput,
 } from "@ssw/core";
 import { centreProgrammes, getProgramme } from "@ssw/content";
-import { and, appointments, consents, contacts, desc, eq, getDb, iamBookings, inArray, ne, payments } from "@ssw/db";
+import { and, appointments, consents, contacts, desc, eq, getDb, inArray, ne, payments } from "@ssw/db";
 import { bookingWindow, HoldRefusedError, integrations, normaliseLanguage, SlotLostError, SlotUnavailableError } from "@ssw/integrations";
 import { allowMockPayments, bookingToken, FunnelError, readToken, refFromToken, requireCentre } from "./config";
 import { alert, logEvent } from "./events";
 import { enqueue } from "./jobs/queue";
 import { ingestEntryEvent, setStage } from "./leads";
-import { cancelReminders, queueTemplate, scheduleReminders } from "./notifications";
 import { openPaymentIssue } from "./payment-issues";
-import { cancelRecovery, startRecovery } from "./recovery";
 import { queueSlixta } from "./slixta-sync";
 
 type Appointment = typeof appointments.$inferSelect;
@@ -181,17 +179,10 @@ export async function submitDetails(raw: DetailsInput, meta: RequestMeta = {}) {
       appointmentRef: a.ref,
     })
     .returning({ id: consents.id });
-  await queueSlixta.consent(consent!.id);
 
   await logEvent({ type: "lead_created", source: "web_form", contactId: contact.id, appointmentId: a.id, data: { ref: a.ref } });
-  await queueSlixta.activity({
-    contactId: contact.id,
-    type: "lead_created",
-    key: `lead-${a.ref}-${consent!.id}`,
-    appointmentRef: a.ref,
-    summary: `Booking form step 1 on ${centre.name}, ${programme.label}`,
-    data: { programme: programme.slug, who: input.who },
-  });
+  // Slixta: lead_created (POST /submits). Every submit is sent; Slixta updates the existing lead.
+  await queueSlixta.lead(a.id, consent!.id);
 
   const eventId = `lead-${a.ref}`;
   await enqueue(
@@ -306,7 +297,7 @@ export async function holdSlot(token: string, slotId: string, opts: { email?: st
   const email = opts.email?.trim().toLowerCase();
   if (email && email !== c.email) {
     [c] = await db.update(contacts).set({ email }).where(eq(contacts.id, c.id)).returning();
-    await queueSlixta.contact(c!.id);
+    await queueSlixta.lead(a.id, `${ref}:email:${email}`);
   }
   if (!c) throw new FunnelError("not_found", "Booking not found", 404);
   const { calendar } = integrations();
@@ -360,7 +351,6 @@ export async function holdSlot(token: string, slotId: string, opts: { email?: st
     .returning();
   const appt = updated!;
 
-  await cancelRecovery(ref);
   await ingestEntryEvent({
     phone: c.phone,
     centre: a.centre,
@@ -376,14 +366,6 @@ export async function holdSlot(token: string, slotId: string, opts: { email?: st
     { runAt: hold.expiresAt, dedupeKey: `timeout:${ref}:${hold.reservationId}` },
   );
   await logEvent({ type: "slot_held", source: "web_form", contactId: c.id, appointmentId: a.id, data: { slotId, expiresAt: hold.expiresAt } });
-  await queueSlixta.appointment(a.id);
-  await queueSlixta.activity({
-    contactId: c.id,
-    type: "slot_held",
-    key: `held-${hold.reservationId}`,
-    appointmentRef: ref,
-    summary: `Slot held: ${appt.slotStart ? formatWhen(appt.slotStart) : slotId}`,
-  });
 
   return {
     when: appt.slotStart ? formatWhen(appt.slotStart) : "",
@@ -435,7 +417,7 @@ export async function createPaymentOrder(token: string, opts: { promotional: boo
     ...(opts.promotional ? [{ type: "promotional", text: CONSENT_TEXTS.promotional.text, version: CONSENT_TEXTS.promotional.version }] : []),
   ];
   for (const r of consentRows) {
-    const [row] = await db
+    await db
       .insert(consents)
       .values({
         contactId: c.id,
@@ -448,13 +430,10 @@ export async function createPaymentOrder(token: string, opts: { promotional: boo
         ip: meta.ip ?? null,
         userAgent: meta.userAgent ?? null,
         appointmentRef: ref,
-      })
-      .returning({ id: consents.id });
-    await queueSlixta.consent(row!.id);
+      });
   }
   if (opts.promotional && !c.promotionalConsent) {
     await db.update(contacts).set({ promotionalConsent: true }).where(eq(contacts.id, c.id));
-    await queueSlixta.contact(c.id);
   }
 
   // Extend the hold once if checkout opens with under 5 minutes left (docs/03, endpoint 4).
@@ -488,7 +467,6 @@ export async function createPaymentOrder(token: string, opts: { promotional: boo
 
   const eventId = `checkout-${order.id}`;
   await logEvent({ type: "payment_started", source: "web_form", contactId: c.id, appointmentId: a.id, data: { orderId: order.id } });
-  await queueSlixta.activity({ contactId: c.id, type: "payment_started", key: `pay-start-${order.id}`, appointmentRef: ref, data: { order_id: order.id } });
   await enqueue(
     "meta.capi",
     { eventName: "InitiateCheckout", eventId, eventTime: new Date().toISOString(), phone: c.phone, email: c.email, value: chargePaise(a) / 100, clientIp: meta.ip ?? null, userAgent: meta.userAgent ?? null },
@@ -576,8 +554,8 @@ export type CapturedPayment = {
 };
 
 /**
- * Verified payment: check amount, order and lead ID; convert the hold into a booking;
- * receipt on WhatsApp; reminders; stage Confirmed or Paid. Idempotent.
+ * Verified payment: check amount, order and lead ID; convert the hold into a booking; stage
+ * Confirmed or Paid; tell Slixta (APPOINTMENT BOOKED), which sends the confirmation. Idempotent.
  */
 export async function handlePaymentCaptured(p: CapturedPayment): Promise<void> {
   const db = await getDb();
@@ -626,7 +604,6 @@ export async function handlePaymentCaptured(p: CapturedPayment): Promise<void> {
     return;
   }
 
-  await cancelRecovery(a.ref);
   const paidAt = new Date();
   let status: AppointmentStatus = "paid";
   let booked = false;
@@ -669,16 +646,6 @@ export async function handlePaymentCaptured(p: CapturedPayment): Promise<void> {
     appointmentRef: a.ref,
   });
   await logEvent({ type: "payment_captured", source: p.source, contactId: c.id, appointmentId: a.id, data: { orderId: p.orderId, paymentId: p.paymentId, status } });
-  await queueSlixta.appointment(a.id);
-  await queueSlixta.activity({
-    contactId: c.id,
-    type: "payment_captured",
-    key: `paid-${p.paymentId}`,
-    appointmentRef: a.ref,
-    summary: `Paid ₹${p.amountPaise / 100} (${p.paymentId})`,
-    data: { payment_id: p.paymentId, order_id: p.orderId, amount_inr: p.amountPaise / 100, notify_owner: true },
-  });
-  await queueSlixta.segment(c.id, "nurture", "remove");
 
   const eventId = `purchase-${a.ref}`;
   await enqueue(
@@ -687,8 +654,9 @@ export async function handlePaymentCaptured(p: CapturedPayment): Promise<void> {
     { dedupeKey: `capi:${eventId}` },
   );
 
-  // The receipt goes out only once the booking is really made (retryBookingConfirm sends it otherwise).
-  if (booked) await sendConfirmation(a.id);
+  // Slixta hears about the booking only once the calendar has really made it (retryBookingConfirm
+  // sends it otherwise). Paid but not booked stays a Payment Issue on our side.
+  if (booked) await queueSlixta.appointmentBooked(a.id, a.ref);
 }
 
 function confirmInput(
@@ -734,61 +702,6 @@ async function enqueueConfirmRetry(ref: string, err: unknown) {
 
 export const CONFIRM_MAX_ATTEMPTS = 2_000;
 
-/** Board section 6: WhatsApp receipt + reminders. */
-export async function sendConfirmation(appointmentId: string): Promise<void> {
-  const db = await getDb();
-  const [a] = await db.select().from(appointments).where(eq(appointments.id, appointmentId));
-  if (!a?.slotStart) return;
-  const centre = requireCentre(a.centre);
-
-  // I AM guide 10: online consultations happen in the I AM app; the message must say how to join.
-  if (a.consultMode === "online") {
-    const [online] = await db
-      .select({ email: iamBookings.holdEmail })
-      .from(iamBookings)
-      .where(and(eq(iamBookings.appointmentRef, a.ref), eq(iamBookings.confirmState, "confirmed")))
-      .limit(1);
-    const [c] = await db.select({ email: contacts.email }).from(contacts).where(eq(contacts.id, a.contactId));
-    await queueTemplate({
-      contactId: a.contactId,
-      appointmentId: a.id,
-      template: "booking_confirmed_online",
-      variables: {
-        name: a.bookerName.split(" ")[0] ?? a.bookerName,
-        doctor: a.resourceName ?? "your doctor",
-        date: formatDay(a.slotStart),
-        time: formatTime(a.slotStart),
-        email: online?.email ?? c?.email ?? "",
-        ref: a.ref,
-        amount: `₹${Math.round(chargePaise(a) / 100)}`,
-      },
-      clientRef: `booking_confirmed-${a.ref}`,
-    });
-    await cancelReminders(a.ref);
-    await scheduleReminders(a.id);
-    return;
-  }
-
-  await queueTemplate({
-    contactId: a.contactId,
-    appointmentId: a.id,
-    template: "booking_confirmed",
-    variables: {
-      name: a.bookerName.split(" ")[0] ?? a.bookerName,
-      when: formatWhen(a.slotStart),
-      centre: centre.name,
-      address: centre.fullAddress,
-      ref: a.ref,
-      amount: `₹${Math.round(chargePaise(a) / 100)}`,
-      reception: centre.receptionPhone,
-    },
-    buttonParam: `booking/${a.ref}?t=${encodeURIComponent(bookingToken(a.ref, 60))}`,
-    clientRef: `booking_confirmed-${a.ref}`,
-  });
-  await cancelReminders(a.ref);
-  await scheduleReminders(a.id);
-}
-
 /** Job: retry the calendar confirmation when its outcome was unknown at payment time. */
 export async function retryBookingConfirm(ref: string, attempt = 1): Promise<void> {
   const a = await loadAppointment(ref);
@@ -807,13 +720,11 @@ export async function retryBookingConfirm(ref: string, attempt = 1): Promise<voi
       .set({ calendarBookingId: booking.ref, slotStart: booking.start, slotEnd: booking.end, holdExpiresAt: null })
       .where(eq(appointments.id, a.id));
     await logEvent({ type: "booking_confirmed_on_retry", source: "calendar", contactId: a.contactId, appointmentId: a.id, data: { attempt } });
-    await queueSlixta.appointment(a.id);
-    await sendConfirmation(a.id);
+    await queueSlixta.appointmentBooked(a.id, a.ref);
   } catch (err) {
     if (err instanceof SlotLostError) {
       await db.update(appointments).set({ status: "payment_issue" }).where(eq(appointments.id, a.id));
       await openNotBookedIssue(a, a.contactId, p.paymentId ?? "", err);
-      await queueSlixta.appointment(a.id);
       return;
     }
     if (attempt === 6) alert("booking confirm outcome still unknown after several retries", { ref, error: (err as Error).message });
@@ -835,15 +746,8 @@ export async function handlePaymentFailed(p: { orderId: string; paymentId?: stri
     await db.update(appointments).set({ status: "payment_failed" }).where(eq(appointments.id, a.id));
   }
   await logEvent({ type: "payment_failed", source: "razorpay", contactId: a.contactId, appointmentId: a.id, data: { orderId: p.orderId, reason: p.reason } });
-  await queueSlixta.activity({
-    contactId: a.contactId,
-    type: "payment_failed",
-    key: `pay-failed-${p.paymentId ?? p.orderId}`,
-    appointmentRef: a.ref,
-    summary: p.reason ?? "Payment failed",
-  });
-  // The hold keeps running so the visitor can retry on the page. Recovery starts when the
-  // 15-minute timer ends without a payment (board section 4: "failed / no payment in 15 min").
+  // The hold keeps running so the visitor can retry on the page. Slixta hears "checkout
+  // abandoned" when the 15-minute timer ends without a payment.
 }
 
 /** Job: the 15-minute timer ended (or the calendar said the hold expired). */
@@ -860,9 +764,9 @@ export async function onPaymentTimeout(ref: string, reservationId: string, opts:
   await db.update(appointments).set({ status: "expired", holdExpiresAt: null }).where(eq(appointments.id, a.id));
   await setStage(a.contactId, "abandoned_failed", "timer", "no payment within 15 minutes");
   await logEvent({ type: "hold_expired", source: opts.fromCalendar ? "calendar" : "timer", contactId: a.contactId, appointmentId: a.id });
-  await queueSlixta.appointment(a.id);
-  await queueSlixta.activity({ contactId: a.contactId, type: "hold_expired", key: `expired-${reservationId}`, appointmentRef: ref });
-  await startRecovery(a.id);
+  // Slixta: checkout_abandoned. Its recovery journey runs from here; a later payment still
+  // books and sends APPOINTMENT BOOKED.
+  await queueSlixta.checkoutAbandoned(a.id, `${ref}:${reservationId}`);
 }
 
 // ---------------------------------------------------------------------------

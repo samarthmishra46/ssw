@@ -2,7 +2,6 @@ import { decideLead, type Stage } from "@ssw/core";
 import { contacts, eq, getDb } from "@ssw/db";
 import { centreOwnerId, requireCentre } from "./config";
 import { logEvent } from "./events";
-import { queueSlixta } from "./slixta-sync";
 
 export type ContactRow = typeof contacts.$inferSelect;
 
@@ -30,9 +29,9 @@ function clean(a: Record<string, string | undefined> = {}): Record<string, strin
 }
 
 /**
- * Board section 3: every entry event (form, WhatsApp, Instagram DM, Razorpay, calendar)
- * goes through here. Phone is the identity; never a second contact; stages only move up
- * unless forced by a rule; a booking at another centre reassigns the owner.
+ * Board section 3: every entry event (form, Razorpay, calendar) goes through here. Phone is the
+ * identity; never a second contact; stages only move up unless forced by a rule. This is our own
+ * record; Slixta keeps its lead from the calls in ./slixta-sync.ts.
  */
 export async function ingestEntryEvent(input: EntryInput): Promise<{ contact: ContactRow; created: boolean; automationBlocked: boolean }> {
   const db = await getDb();
@@ -91,7 +90,6 @@ export async function ingestEntryEvent(input: EntryInput): Promise<{ contact: Co
     if (inserted[0]) {
       const contact = inserted[0];
       await logEvent({ type: "contact_created", source: input.source, contactId: contact.id, data: { event: input.eventType, stage: contact.stage } });
-      await queueSlixta.contact(contact.id);
       return { contact, created: true, automationBlocked: false };
     }
     // Lost a race with a concurrent create: treat as an update.
@@ -122,18 +120,6 @@ export async function ingestEntryEvent(input: EntryInput): Promise<{ contact: Co
     contactId: prev.id,
     data: { event: input.eventType, from: prev.stage, to: decision.stage, reassigned: decision.reassigned },
   });
-  await queueSlixta.contact(prev.id, decision.notifyOwnerIds);
-
-  if (decision.automationBlocked) {
-    // "No automation. Log the touch and tell the current owner."
-    await queueSlixta.activity({
-      contactId: prev.id,
-      type: "touch",
-      key: `touch-blocked-${prev.id}-${now.getTime()}`,
-      summary: `New ${input.source} touch while automation is paused for this contact.`,
-      data: { event: input.eventType, notify_owner: true },
-    });
-  }
 
   return { contact: contact!, created: false, automationBlocked: decision.automationBlocked };
 }
@@ -145,5 +131,4 @@ export async function setStage(contactId: string, stage: Stage, source: string, 
   if (!prev || prev.stage === stage) return;
   await db.update(contacts).set({ stage }).where(eq(contacts.id, contactId));
   await logEvent({ type: "stage_changed", source, contactId, data: { from: prev.stage, to: stage, reason, forced: true } });
-  await queueSlixta.contact(contactId);
 }
