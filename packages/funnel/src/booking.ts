@@ -215,9 +215,23 @@ export async function submitDetails(raw: DetailsInput, meta: RequestMeta = {}) {
  */
 export async function getDoctors(token: string) {
   const a = await loadAppointment(refFromToken(token));
+  return doctorsFor({ centre: a.centre, programme: a.programme, language: a.language });
+}
+
+/**
+ * Same list without a booking: the page asks for it while the form is being saved, so the
+ * pop-up usually opens with the doctors already there. Public data (names, fees, languages).
+ */
+export async function getDoctorsForPage(q: { centre: string; programme: string; language?: string }) {
+  const centre = requireCentre(q.centre);
+  if (!centreProgrammes[centre.slug]?.includes(q.programme)) throw new FunnelError("unknown_programme", "Unknown programme", 404);
+  return doctorsFor({ centre: centre.slug, programme: q.programme, language: q.language });
+}
+
+async function doctorsFor(q: { centre: string; programme: string; language?: string }) {
   const { calendar } = integrations();
   if (!calendar.listResources) return { doctors: null };
-  const doctors = await calendar.listResources({ centre: a.centre, programme: a.programme, language: a.language });
+  const doctors = await calendar.listResources(q);
   return {
     doctors: doctors.map((d) => ({
       id: d.id,
@@ -244,11 +258,45 @@ function displayLanguages(languages: string[]): string[] {
   return [...new Set(out)];
 }
 
-export async function getSlots(token: string, opts: { doctorId?: string; mode?: "offline" | "online" } = {}) {
+/** Noon IST on a day, for its labels ("Thu", "26 Nov", "Thursday, 26 November"). */
+function dayLabels(date: string) {
+  const noon = new Date(`${date}T06:30:00Z`);
+  return {
+    weekday: noon.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", weekday: "short" }),
+    dayMonth: noon.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short" }),
+    label: formatDay(noon),
+  };
+}
+
+/**
+ * Step 2, I AM guide flow: a doctor's bookable days (one call). The times of a day come from
+ * getSlots with `date` when the guest taps it. `days: null` = this calendar has no per-doctor
+ * days; use getSlots for the whole window instead.
+ */
+export async function getDays(token: string, opts: { doctorId?: string; mode?: "offline" | "online" } = {}) {
+  const a = await loadAppointment(refFromToken(token));
+  const { calendar } = integrations();
+  if (!calendar.listDates || !opts.doctorId) return { days: null };
+  let res;
+  try {
+    res = await calendar.listDates({ centre: a.centre, resourceId: opts.doctorId, mode: opts.mode, language: a.language });
+  } catch (err) {
+    if (err instanceof HoldRefusedError) throw new FunnelError(err.code, err.message, err.status);
+    throw err;
+  }
+  return {
+    mode: res.mode,
+    durationMinutes: res.durationMinutes,
+    days: res.dates.map((d) => ({ date: d.date, ...dayLabels(d.date), available: d.available, slotsFree: d.slotsFree })),
+  };
+}
+
+export async function getSlots(token: string, opts: { doctorId?: string; mode?: "offline" | "online"; date?: string } = {}) {
   const a = await loadAppointment(refFromToken(token));
   const centre = requireCentre(a.centre);
   const { calendar } = integrations();
-  const { from, to } = bookingWindow(centre.bookingWindowDays, new Date(), { includeToday: calendar.windowStartsToday });
+  // One day (the one the guest tapped), or the whole booking window for calendars without days.
+  const { from, to } = opts.date ? { from: opts.date, to: opts.date } : bookingWindow(centre.bookingWindowDays, new Date(), { includeToday: calendar.windowStartsToday });
   let availability;
   try {
     availability = await calendar.getAvailability({
@@ -268,12 +316,10 @@ export async function getSlots(token: string, opts: { doctorId?: string; mode?: 
   return {
     durationMinutes: availability.durationMinutes,
     days: availability.days.map((d) => {
-      const noon = new Date(`${d.date}T06:30:00Z`); // 12:00 IST
       return {
         date: d.date,
-        weekday: noon.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", weekday: "short" }),
-        dayMonth: noon.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short" }),
-        label: formatDay(noon),
+        ...dayLabels(d.date),
+        available: d.slots.length > 0,
         slots: d.slots.map((s) => ({
           slotId: s.slotId,
           time: formatTime(s.start),

@@ -4,13 +4,14 @@ import { route } from "@/lib/route";
 
 export const dynamic = "force-dynamic";
 
-/** Step 2: live slots for this booking's centre and language, optionally for one doctor and mode. */
+/** Step 2: live slots for this booking's centre and language, optionally for one doctor, mode and day. */
 export const GET = route(async (req) => {
   const q = req.nextUrl.searchParams;
-  const { token, doctor, mode } = slotsQuerySchema.parse({
+  const { token, doctor, mode, date } = slotsQuerySchema.parse({
     token: q.get("token") ?? undefined,
     doctor: q.get("doctor") || undefined,
     mode: q.get("mode") || undefined,
+    date: q.get("date") || undefined,
   });
-  return getSlots(token, { doctorId: doctor, mode });
+  return getSlots(token, { doctorId: doctor, mode, date });
 });

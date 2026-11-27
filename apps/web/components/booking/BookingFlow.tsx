@@ -10,13 +10,20 @@ type Screen = "s1" | "s2" | "s3" | "wait" | "waitlong" | "done" | "failed" | "ex
 
 type Mode = "offline" | "online";
 
+type DaySlot = { slotId: string; time: string; start: string; feePaise: number; mode: Mode };
+
+/** A bookable day. `slots` undefined = times not loaded yet (I AM: loaded when the day is shown). */
 type Day = {
   date: string;
   weekday: string;
   dayMonth: string;
   label: string;
-  slots: { slotId: string; time: string; start: string; feePaise: number; mode: Mode }[];
+  available: boolean;
+  slots?: DaySlot[];
 };
+
+/** How long a day's times are reused in the pop-up before asking again. */
+const DAY_TIMES_TTL_MS = 60_000;
 
 /** A doctor from the calendar (I AM): everything shown here comes from the API. */
 type Doctor = {
@@ -172,7 +179,14 @@ export function BookingFlow({ centre, programme }: Props) {
     }
   }, []);
 
+  // What the pop-up is showing ("doctor|mode"): answers for an earlier choice are ignored.
+  const view = useRef("");
+  // A day's times, reused for a minute (switching back to a day is instant).
+  const dayTimes = useRef(new Map<string, { at: number; slots: DaySlot[] }>());
+
+  /** Calendars without per-doctor days (own calendar, mock): every day's times in one call. */
   const loadSlots = useCallback(async (t: string, doctor?: string | null, m?: Mode | null) => {
+    const v = (view.current = `${doctor ?? ""}|${m ?? ""}`);
     setDays(null);
     setSlotId(null);
     const q = new URLSearchParams({ token: t });
@@ -180,31 +194,81 @@ export function BookingFlow({ centre, programme }: Props) {
     if (m) q.set("mode", m);
     try {
       const res = await api<{ days: Day[] }>(`/api/slots?${q}`);
+      if (view.current !== v) return;
       setDays(res.days);
-      setDay((d) => (d && res.days.some((x) => x.date === d && x.slots.length > 0) ? d : (res.days.find((x) => x.slots.length > 0)?.date ?? null)));
+      setDay((d) => (d && res.days.some((x) => x.date === d && x.available) ? d : (res.days.find((x) => x.available)?.date ?? null)));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not load times. Please try again.");
       setDays([]);
     }
   }, []);
 
+  /** One day's times (I AM /slots/ for that date), when the day is shown. */
+  const loadDayTimes = useCallback(async (t: string, doctor: string, m: Mode | null, date: string) => {
+    const v = `${doctor}|${m ?? ""}`;
+    const key = `${v}|${date}`;
+    const put = (slots: DaySlot[]) => setDays((ds) => ds?.map((d) => (d.date === date ? { ...d, slots } : d)) ?? ds);
+    const hit = dayTimes.current.get(key);
+    if (hit && Date.now() - hit.at < DAY_TIMES_TTL_MS) return put(hit.slots);
+    const q = new URLSearchParams({ token: t, doctor, date });
+    if (m) q.set("mode", m);
+    try {
+      const res = await api<{ days: Day[] }>(`/api/slots?${q}`);
+      const slots = res.days.find((d) => d.date === date)?.slots ?? [];
+      dayTimes.current.set(key, { at: Date.now(), slots });
+      if (view.current === v) put(slots);
+    } catch (e) {
+      if (view.current !== v) return;
+      setError(e instanceof ApiError ? e.message : "Could not load times. Please try again.");
+      put([]);
+    }
+  }, []);
+
+  /** I AM guide flow: a doctor's days first (one call), then the first open day's times. */
+  const loadDays = useCallback(
+    async (t: string, doctor: string, m: Mode | null, prefer?: string | null) => {
+      const v = (view.current = `${doctor}|${m ?? ""}`);
+      setDays(null);
+      setSlotId(null);
+      const q = new URLSearchParams({ token: t, doctor });
+      if (m) q.set("mode", m);
+      try {
+        const res = await api<{ days: Omit<Day, "slots">[] | null }>(`/api/dates?${q}`);
+        if (view.current !== v) return;
+        if (res.days === null) return void loadSlots(t, doctor, m);
+        setDays(res.days.map((d) => ({ ...d, slots: undefined })));
+        const first = prefer && res.days.some((d) => d.date === prefer && d.available) ? prefer : (res.days.find((d) => d.available)?.date ?? null);
+        setDay(first);
+        if (first) void loadDayTimes(t, doctor, m, first);
+      } catch (e) {
+        if (view.current !== v) return;
+        setError(e instanceof ApiError ? e.message : "Could not load times. Please try again.");
+        setDays([]);
+      }
+    },
+    [loadSlots, loadDayTimes],
+  );
+
   const pickDoctor = useCallback(
     (t: string, d: Doctor, m?: Mode) => {
       const nextMode = m && d.modes.includes(m) ? m : d.modes.includes("offline") ? "offline" : d.modes[0]!;
       setDoctorId(d.id);
       setMode(nextMode);
-      void loadSlots(t, d.id, nextMode);
+      void loadDays(t, d.id, nextMode);
     },
-    [loadSlots],
+    [loadDays],
   );
 
-  /** Step 2: doctors from the calendar if it names them, otherwise straight to times. */
+  /**
+   * Step 2: doctors from the calendar if it names them, otherwise straight to times. `early` is
+   * the doctor list requested while the form was being saved; without it we ask now.
+   */
   const startStep2 = useCallback(
-    async (t: string) => {
+    async (t: string, early?: Promise<{ doctors: Doctor[] | null } | null>) => {
       setDays(null);
       setSlotId(null);
       try {
-        const res = await api<{ doctors: Doctor[] | null }>(`/api/doctors?token=${encodeURIComponent(t)}`);
+        const res = (early ? await early : null) ?? (await api<{ doctors: Doctor[] | null }>(`/api/doctors?token=${encodeURIComponent(t)}`));
         setDoctors(res.doctors);
         if (res.doctors === null) return void loadSlots(t);
         if (res.doctors.length === 1) pickDoctor(t, res.doctors[0]!);
@@ -332,6 +396,10 @@ export function BookingFlow({ centre, programme }: Props) {
     }
     setBusy(true);
     setError(null);
+    // Ask for the doctor list now, while the lead is saved: the pop-up usually opens with it ready.
+    const early = api<{ doctors: Doctor[] | null }>(
+      `/api/doctors?${new URLSearchParams({ centre: centre.slug, programme: programme.slug, language })}`,
+    ).catch(() => null);
     try {
       const res = await api<{ ref: string; token: string; firstName: string; eventId: string }>("/api/leads", {
         method: "POST",
@@ -357,7 +425,7 @@ export function BookingFlow({ centre, programme }: Props) {
       setFirstName(res.firstName);
       store(storageKey, res.token);
       go("s2");
-      void startStep2(res.token);
+      void startStep2(res.token, early);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Something went wrong. Please try again.");
     } finally {
@@ -393,7 +461,9 @@ export function BookingFlow({ centre, programme }: Props) {
     } catch (e) {
       if (e instanceof ApiError && e.code === "slot_unavailable") {
         setError(e.message);
-        void loadSlots(token, doctorId, mode);
+        dayTimes.current.clear();
+        if (doctors && doctorId) void loadDays(token, doctorId, mode, day);
+        else void loadSlots(token, doctorId, mode);
       } else {
         setError(e instanceof ApiError ? e.message : "Something went wrong. Please try again.");
       }
@@ -408,7 +478,8 @@ export function BookingFlow({ centre, programme }: Props) {
     paying.current = false;
     go("s2");
     if (token) {
-      if (doctors && doctorId) void loadSlots(token, doctorId, mode);
+      dayTimes.current.clear();
+      if (doctors && doctorId) void loadDays(token, doctorId, mode, day);
       else void startStep2(token);
     }
   }
@@ -530,7 +601,7 @@ export function BookingFlow({ centre, programme }: Props) {
   const inForm = screen === "s1" || screen === "s2" || screen === "s3";
   const currentDay = days?.find((d) => d.date === day) ?? null;
   const doctor = doctors?.find((d) => d.id === doctorId) ?? null;
-  const chosenSlot = currentDay?.slots.find((x) => x.slotId === slotId) ?? null;
+  const chosenSlot = currentDay?.slots?.find((x) => x.slotId === slotId) ?? null;
   const needsEmail = (chosenSlot?.mode ?? mode) === "online" && !email.trim();
   const fee = amountPaise != null ? rupees(amountPaise) : null;
   const showTimes = doctors === null || !!doctor;
@@ -742,8 +813,8 @@ export function BookingFlow({ centre, programme }: Props) {
                     <>
                       <span className="label">Day</span>
                       {days === null ? (
-                        <p className="loading">Loading available times…</p>
-                      ) : days.every((d) => d.slots.length === 0) ? (
+                        <p className="loading">Loading available days…</p>
+                      ) : days.every((d) => !d.available) ? (
                         <p className="loading">
                           {doctor ? `${doctor.name} has no free times in the next few days. Please choose another doctor, or ` : "No times are open in the next few days. Please "}
                           call reception on {centre.receptionPhone} or ask us on WhatsApp.
@@ -757,11 +828,12 @@ export function BookingFlow({ centre, programme }: Props) {
                                 type="button"
                                 className="chip"
                                 aria-pressed={day === d.date}
-                                disabled={d.slots.length === 0}
+                                disabled={!d.available}
                                 aria-label={d.label}
                                 onClick={() => {
                                   setDay(d.date);
                                   setSlotId(null);
+                                  if (d.slots === undefined && token && doctorId) void loadDayTimes(token, doctorId, mode, d.date);
                                 }}
                               >
                                 {d.weekday}
@@ -770,13 +842,19 @@ export function BookingFlow({ centre, programme }: Props) {
                             ))}
                           </div>
                           <span className="label">Time</span>
-                          <div className="chips" role="group" aria-label="Time">
-                            {currentDay?.slots.map((x) => (
-                              <button key={x.slotId} type="button" className="chip" aria-pressed={slotId === x.slotId} onClick={() => setSlotId(x.slotId)}>
-                                {x.time}
-                              </button>
-                            ))}
-                          </div>
+                          {currentDay && currentDay.slots === undefined ? (
+                            <p className="loading">Loading times…</p>
+                          ) : currentDay && currentDay.slots?.length === 0 ? (
+                            <p className="loading">No free times left on this day. Please choose another day.</p>
+                          ) : (
+                            <div className="chips" role="group" aria-label="Time">
+                              {currentDay?.slots?.map((x) => (
+                                <button key={x.slotId} type="button" className="chip" aria-pressed={slotId === x.slotId} onClick={() => setSlotId(x.slotId)}>
+                                  {x.time}
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </>
                       )}
                     </>

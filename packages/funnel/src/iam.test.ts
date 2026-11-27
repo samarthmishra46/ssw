@@ -19,7 +19,9 @@ import {
   completeMockPayment,
   createPaymentOrder,
   getBookingStatus,
+  getDays,
   getDoctors,
+  getDoctorsForPage,
   getSlots,
   holdSlot,
   onPaymentTimeout,
@@ -78,6 +80,15 @@ const details = (over: Record<string, unknown> = {}) => ({
 
 async function slotsFor(token: string, opts: { doctorId?: string; mode?: "offline" | "online" } = {}) {
   return (await getSlots(token, opts)).days.flatMap((d) => d.slots);
+}
+
+/**
+ * A time with Dr Asha (₹500) at least a day ahead, so the test doesn't depend on today's date or
+ * time of day (the earliest time today may be another doctor's, or pass while the test moves the clock).
+ */
+async function ashaTomorrowOrLater(token: string) {
+  const slots = await slotsFor(token, { doctorId: DOC_ASHA, mode: "offline" });
+  return slots.find((x) => new Date(x.start).getTime() >= now + 24 * 3600_000)!;
 }
 
 /** Make due jobs runnable now (the confirm retry waits 5 s; tests do not). */
@@ -200,10 +211,44 @@ describe("I AM: browse and hold", () => {
   });
 });
 
+describe("I AM: days first, then one day's times (I AM's booking flow)", () => {
+  const DOC = DOC_ASHA;
+
+  it("a doctor's days come from /dates/ in I AM's own window, in one call", async () => {
+    const { token } = await submitDetails(details());
+    const res = await getDays(token, { doctorId: DOC, mode: "offline" });
+    expect(res.mode).toBe("offline");
+    expect(res.days).toHaveLength(14); // I AM's window (the fake's is 14 days), not our 7
+    expect(res.days![0]).toMatchObject({ date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), weekday: expect.any(String), available: expect.any(Boolean) });
+    expect(fake.requestsTo("GET", `/experts/${DOC}/dates/`)).toHaveLength(1);
+    expect(fake.requestsTo("GET", `/experts/${DOC}/slots/`)).toHaveLength(0);
+  });
+
+  it("a day's times are one /slots/ call, without asking for the days again", async () => {
+    const { token } = await submitDetails(details());
+    const { days } = await getDays(token, { doctorId: DOC, mode: "offline" });
+    const open = days!.find((d) => d.available)!;
+    const res = await getSlots(token, { doctorId: DOC, mode: "offline", date: open.date });
+    expect(res.days.map((d) => d.date)).toEqual([open.date]);
+    expect(res.days[0]!.slots.length).toBeGreaterThan(0);
+    expect(fake.requestsTo("GET", `/experts/${DOC}/slots/`)).toHaveLength(1);
+    expect(fake.requestsTo("GET", `/experts/${DOC}/dates/`)).toHaveLength(1); // the day went straight to /slots/
+    // And the guest can hold one of those times.
+    await expect(holdSlot(token, res.days[0]!.slots[0]!.slotId)).resolves.toMatchObject({ doctor: "Dr Asha Rao" });
+  });
+
+  it("the doctor list can be loaded without a booking, while the form is saved", async () => {
+    const { doctors } = await getDoctorsForPage({ centre: "ahmedabad", programme: "joints", language: "Hindi" });
+    expect(doctors!.map((d) => d.name)).toEqual(["Dr Asha Rao", "Dr Vikram Shah"]);
+    await expect(getDoctorsForPage({ centre: "ahmedabad", programme: "nope" })).rejects.toMatchObject({ code: "unknown_programme" });
+    await expect(getDoctorsForPage({ centre: "mumbai", programme: "joints" })).rejects.toMatchObject({ code: "unknown_centre" });
+  });
+});
+
 describe("I AM: confirm after payment", () => {
   it("confirms a centre visit and stores everything needed for support and reconciliation (checklist 4)", async () => {
     const { token, ref } = await submitDetails(details());
-    const [slot] = await slotsFor(token);
+    const slot = await ashaTomorrowOrLater(token);
     await holdSlot(token, slot!.slotId);
     await createPaymentOrder(token, { promotional: false });
     const status = await completeMockPayment(token, "success");
@@ -315,7 +360,7 @@ describe("I AM: holds are never released while a payment may still arrive", () =
 
   it("late payment after someone else took the slot: slot_unavailable -> refund", async () => {
     const { token, ref } = await submitDetails(details());
-    const [slot] = await slotsFor(token);
+    const slot = await ashaTomorrowOrLater(token);
     await holdSlot(token, slot!.slotId);
     await createPaymentOrder(token, { promotional: false });
     now += 16 * 60_000;

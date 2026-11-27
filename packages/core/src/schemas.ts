@@ -69,6 +69,18 @@ export const slotsQuerySchema = z.object({
   token,
   doctor: z.string().uuid().optional(),
   mode: z.enum(["offline", "online"]).optional(),
+  /** One day only (YYYY-MM-DD). Without it, every day in the window. */
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+});
+
+/** Doctor list before the booking exists (loaded while the form is saved). */
+export const doctorsQuerySchema = z.object({
+  centre: z.string().min(1).max(40),
+  programme: z.string().min(1).max(40),
+  language: z.enum(LANGUAGES).optional(),
 });
 
 export const releaseSchema = z.object({ token });

@@ -1,4 +1,4 @@
-import { addDays } from "@ssw/core";
+import { addDays, istDate } from "@ssw/core";
 import type { IamCentreSettings } from "@ssw/content";
 import { and, eq, getDb, iamBookings, isNull, ne } from "@ssw/db";
 import {
@@ -13,6 +13,8 @@ import {
   type CalendarClient,
   type ConfirmInput,
   type ConsultMode,
+  type DatesQuery,
+  type DatesResult,
   type Hold,
   type HoldInput,
   type Resource,
@@ -231,6 +233,40 @@ export class IamCalendarClient implements CalendarClient {
     }));
   }
 
+  /** Mode and centre-visit length to browse a doctor in: the one asked for if they offer it, else their first. */
+  private browseMode(e: IamExpert, allowed: IamMode[], wanted?: IamMode, preferredDuration?: number) {
+    const modes = this.modesFor(e, allowed);
+    const mode = wanted && modes.includes(wanted) ? wanted : modes[0];
+    if (!mode) return null;
+    return { mode, duration: mode === "offline" ? this.offlineDuration(e, preferredDuration) : undefined };
+  }
+
+  private datesFor(key: IamKey, expertId: string, mode: IamMode, duration: number | undefined) {
+    return this.cached(`dates:${key.fingerprint}:${expertId}:${mode}:${duration ?? ""}`, this.opts.cache?.dates ?? 60, () =>
+      this.api(key).getDates(expertId, { mode, duration }),
+    );
+  }
+
+  /**
+   * One doctor's days (guide flow: doctor -> /dates/ -> /slots/ for the day the guest taps).
+   * The window is I AM's own (platform setting), not ours; past days are dropped.
+   */
+  async listDates(q: DatesQuery): Promise<DatesResult> {
+    const s = this.settings(q.centre);
+    const key = this.keyring.active(s.code);
+    const expert = (await this.listExperts(q.centre, q.language)).find((e) => e.id === q.resourceId);
+    if (!expert) throw new HoldRefusedError("doctor_unavailable", "This doctor isn't taking bookings right now. Please choose another doctor.", 404);
+    const browse = this.browseMode(expert, s.modes, q.mode, s.iam.preferredDurationMinutes);
+    if (!browse) throw new HoldRefusedError("doctor_unavailable", "This doctor isn't taking bookings right now. Please choose another doctor.", 404);
+    const today = istDate(this.now());
+    const res = await this.datesFor(key, expert.id, browse.mode, browse.duration);
+    return {
+      mode: browse.mode as ConsultMode,
+      durationMinutes: res.duration_minutes,
+      dates: res.dates.filter((d) => d.date >= today).map((d) => ({ date: d.date, available: d.available && d.slots_free > 0, slotsFree: d.slots_free })),
+    };
+  }
+
   async getAvailability(q: AvailabilityQuery): Promise<Availability> {
     const s = this.settings(q.centre);
     const key = this.keyring.active(s.code);
@@ -242,26 +278,38 @@ export class IamCalendarClient implements CalendarClient {
     }
     if (experts.length === 0) console.warn(`[iam] no bookable doctors for ${q.centre}; check the key's centres and IAM_CENTRE_${s.code}`);
 
-    type Pick = { slot: ParsedSlot; startAt: Date; endAt: Date; free: number; fee: number };
+    // rank: the doctor's place in the list (guest's language first), to break ties the same way every time.
+    type Pick = { slot: ParsedSlot; startAt: Date; endAt: Date; free: number; fee: number; rank: number };
     const byDate = new Map<string, Map<number, Pick>>();
     let failures = 0;
     let lastError: unknown = null;
     let durationShown: number | undefined;
 
+    // One day asked for (the guest tapped it, after /dates/ showed it open): go straight to /slots/,
+    // one call, even when this server's cache of /dates/ is cold.
+    const singleDay = q.from === q.to;
+
     await pool(experts, 4, async (e) => {
-      const modes = this.modesFor(e, s.modes);
-      const mode = q.mode && modes.includes(q.mode) ? q.mode : modes[0];
-      if (!mode) return;
-      const duration = mode === "offline" ? this.offlineDuration(e, s.iam.preferredDurationMinutes) : undefined;
+      const browse = this.browseMode(e, s.modes, q.mode, s.iam.preferredDurationMinutes);
+      if (!browse) return;
+      const { mode, duration } = browse;
+      const rank = experts.indexOf(e);
       try {
-        const dates = await this.cached(`dates:${key.fingerprint}:${e.id}:${mode}:${duration ?? ""}`, this.opts.cache?.dates ?? 60, () =>
-          api.getDates(e.id, { mode, duration }),
-        );
-        const wanted = dates.dates.filter((d) => d.available && d.date >= q.from && d.date <= q.to);
-        for (const d of wanted) {
-          const slots = await this.cached(`slots:${key.fingerprint}:${e.id}:${mode}:${duration ?? ""}:${d.date}`, this.opts.cache?.slots ?? 20, () =>
-            api.getSlots(e.id, { mode, date: d.date, duration }),
-          );
+        const wanted = singleDay
+          ? [{ date: q.from, slots_free: 0 }]
+          : (await this.datesFor(key, e.id, mode, duration)).dates.filter((d) => d.available && d.date >= q.from && d.date <= q.to);
+        // One call per day, 4 at a time: in a row they added up to seconds (each call crosses to I AM).
+        await pool(wanted, 4, async (d) => {
+          let slots;
+          try {
+            slots = await this.cached(`slots:${key.fingerprint}:${e.id}:${mode}:${duration ?? ""}:${d.date}`, this.opts.cache?.slots ?? 20, () =>
+              api.getSlots(e.id, { mode, date: d.date, duration }),
+            );
+          } catch (err) {
+            // A day outside I AM's window (it can change) is simply a day without times.
+            if (singleDay && err instanceof IamApiError && (err.code === "DATE_IN_PAST" || err.code === "BOOKING_WINDOW_EXCEEDED")) return;
+            throw err;
+          }
           durationShown ??= slots.duration_minutes;
           const day = byDate.get(d.date) ?? new Map<number, Pick>();
           byDate.set(d.date, day);
@@ -270,17 +318,18 @@ export class IamCalendarClient implements CalendarClient {
             const startAt = new Date(slot.start);
             if (Number.isNaN(startAt.getTime()) || startAt.getTime() <= this.now().getTime()) continue;
             const current = day.get(startAt.getTime());
-            if (!current || d.slots_free > current.free) {
+            if (!current || d.slots_free > current.free || (d.slots_free === current.free && rank < current.rank)) {
               day.set(startAt.getTime(), {
                 slot: { mode, duration, expertId: e.id, start: slot.start },
                 startAt,
                 endAt: new Date(slot.end),
                 free: d.slots_free,
                 fee: slots.fee_paisa ?? e.fee_paisa,
+                rank,
               });
             }
           }
-        }
+        });
       } catch (err) {
         failures++;
         lastError = err;

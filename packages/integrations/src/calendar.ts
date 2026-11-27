@@ -129,6 +129,15 @@ export type AvailabilityQuery = {
 
 export type ResourceQuery = { centre: string; programme?: string; language?: string };
 
+export type DatesQuery = { centre: string; resourceId: string; mode?: ConsultMode; language?: string };
+
+/** One doctor's bookable days, in the calendar's own booking window. */
+export type DatesResult = {
+  mode: ConsultMode;
+  durationMinutes: number;
+  dates: { date: string; available: boolean; slotsFree: number }[];
+};
+
 export interface CalendarClient {
   readonly mode: "http" | "mock" | "iam";
   /** False when holds cannot be extended (I AM): the funnel then never calls extendHold. */
@@ -146,6 +155,11 @@ export interface CalendarClient {
   getBooking?(bookingRef: string): Promise<BookingLookup | null>;
   /** Doctors the guest chooses from. Calendars without it show one slot grid per centre. */
   listResources?(q: ResourceQuery): Promise<Resource[]>;
+  /**
+   * Days a doctor can be booked (I AM /dates/). With it, the booking card loads days first and one
+   * day's times when the guest taps that day, instead of every day's times up front.
+   */
+  listDates?(q: DatesQuery): Promise<DatesResult>;
   /** Day the booking window starts: "today" when the calendar enforces its own minimum notice. */
   readonly windowStartsToday?: boolean;
 }
