@@ -816,7 +816,7 @@ export function BookingFlow({ centre, programme }: Props) {
                         <p className="loading">Loading available days…</p>
                       ) : days.every((d) => !d.available) ? (
                         <p className="loading">
-                          {doctor ? `${doctor.name} has no free times in the next few days. Please choose another doctor, or ` : "No times are open in the next few days. Please "}
+                          {doctor ? `${doctor.name} has no free times in the coming days. Please choose another doctor, or ` : "No times are open in the coming days. Please "}
                           call reception on {centre.receptionPhone} or ask us on WhatsApp.
                         </p>
                       ) : (

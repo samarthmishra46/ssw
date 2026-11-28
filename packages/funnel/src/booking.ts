@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  addDays,
   CONSENT_TEXTS,
   EXTEND_BY_SECONDS,
   EXTEND_WHEN_LEFT_MS,
@@ -9,6 +10,7 @@ import {
   formatDay,
   formatTime,
   formatWhen,
+  istDate,
   makeBookingRef,
   maskPhone,
   normalizeIndianPhone,
@@ -275,6 +277,7 @@ function dayLabels(date: string) {
  */
 export async function getDays(token: string, opts: { doctorId?: string; mode?: "offline" | "online" } = {}) {
   const a = await loadAppointment(refFromToken(token));
+  const centre = requireCentre(a.centre);
   const { calendar } = integrations();
   if (!calendar.listDates || !opts.doctorId) return { days: null };
   let res;
@@ -284,10 +287,14 @@ export async function getDays(token: string, opts: { doctorId?: string; mode?: "
     if (err instanceof HoldRefusedError) throw new FunnelError(err.code, err.message, err.status);
     throw err;
   }
+  // I AM's window, but never more than the centre's (14 days for Ahmedabad).
+  const lastDay = addDays(istDate(new Date()), centre.bookingWindowDays - 1);
   return {
     mode: res.mode,
     durationMinutes: res.durationMinutes,
-    days: res.dates.map((d) => ({ date: d.date, ...dayLabels(d.date), available: d.available, slotsFree: d.slotsFree })),
+    days: res.dates
+      .filter((d) => d.date <= lastDay)
+      .map((d) => ({ date: d.date, ...dayLabels(d.date), available: d.available, slotsFree: d.slotsFree })),
   };
 }
 

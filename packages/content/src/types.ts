@@ -22,7 +22,10 @@ export type Centre = {
   /** Centre owner kept on our own contact record. Overridable per environment with SLIXTA_OWNER_ID_<CODE>. */
   slixtaOwnerId: string | null;
   calendarService: string;
-  /** Booking window shown on the landing page. */
+  /**
+   * Most days ahead a guest can pick, today included. With I AM the days come from its /dates/
+   * window, capped at this; when I AM's own window is shorter, that applies.
+   */
   bookingWindowDays: number;
   /** I AM Partner Booking API settings (docs/06), used when the calendar runs in I AM mode. */
   iam?: IamCentreSettings;

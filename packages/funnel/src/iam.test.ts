@@ -224,6 +224,19 @@ describe("I AM: days first, then one day's times (I AM's booking flow)", () => {
     expect(fake.requestsTo("GET", `/experts/${DOC}/slots/`)).toHaveLength(0);
   });
 
+  it("shows at most the centre's window (14 days) even when I AM's is longer", async () => {
+    const { centres } = await import("@ssw/content");
+    const before = centres.ahmedabad!.bookingWindowDays;
+    centres.ahmedabad!.bookingWindowDays = 10; // the fake I AM returns 14 days
+    try {
+      const { token } = await submitDetails(details());
+      const res = await getDays(token, { doctorId: DOC, mode: "offline" });
+      expect(res.days).toHaveLength(10);
+    } finally {
+      centres.ahmedabad!.bookingWindowDays = before;
+    }
+  });
+
   it("a day's times are one /slots/ call, without asking for the days again", async () => {
     const { token } = await submitDetails(details());
     const { days } = await getDays(token, { doctorId: DOC, mode: "offline" });
